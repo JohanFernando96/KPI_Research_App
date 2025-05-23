@@ -17,10 +17,11 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
   const [specializedKPIs, setSpecializedKPIs] = useState({});
   const [selectedEmployeeKPIs, setSelectedEmployeeKPIs] = useState(null);
   const [selectedEmployeeName, setSelectedEmployeeName] = useState("");
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState(""); // Add this line
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [showKpiModal, setShowKpiModal] = useState(false);
-  const [activeTab, setActiveTab] = useState("details"); // Add this line
+  const [activeTab, setActiveTab] = useState("details");
   const [kpiData, setKpiData] = useState(null);
+  const [debugInfo, setDebugInfo] = useState({});
 
   useEffect(() => {
     if (projectId) {
@@ -31,37 +32,75 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
   const fetchTeamData = async () => {
     setIsLoading(true);
     setError("");
-
+    
     try {
+      console.log("Fetching team data for project:", projectId);
+      
       // First get the KPI data to access role criteria
       const kpiResponse = await kpiService.getProjectKPIs(projectId);
-      if (kpiResponse.success) {
-        setKpiData(kpiResponse.data);
+      console.log("KPI response:", kpiResponse);
+      
+      if (!kpiResponse.success) {
+        throw new Error("Failed to fetch KPI data: " + (kpiResponse.message || "Unknown error"));
       }
+      
+      setKpiData(kpiResponse.data);
 
       // Then get team data
       const response = await projectService.getProjectTeam(projectId);
+      console.log("Team data response:", response);
 
-      if (response.success) {
-        setTeamData(response.data);
+      if (!response.success) {
+        throw new Error("Failed to fetch team data: " + (response.message || "Unknown error"));
+      }
+      
+      setTeamData(response.data);
+      setDebugInfo(prev => ({...prev, teamData: response.data}));
 
-        // Get employee IDs to fetch
-        let employeeIds = response.data.employee_ids || [];
+      // Extract employee IDs from all possible sources
+      const employeeIds = [];
+      
+      // Get from role_assignments if it's an array
+      if (response.data.role_assignments && Array.isArray(response.data.role_assignments)) {
+        response.data.role_assignments.forEach(assignment => {
+          if (assignment.employeeId && !employeeIds.includes(assignment.employeeId)) {
+            employeeIds.push(assignment.employeeId);
+          }
+        });
+      } 
+      // Get from role_assignments if it's an object
+      else if (response.data.role_assignments && typeof response.data.role_assignments === 'object') {
+        Object.entries(response.data.role_assignments).forEach(([roleId, employeeId]) => {
+          if (employeeId && !employeeIds.includes(employeeId)) {
+            employeeIds.push(employeeId);
+          }
+        });
+      }
+      
+      // Also include employee_ids array if present
+      if (response.data.employee_ids && Array.isArray(response.data.employee_ids)) {
+        response.data.employee_ids.forEach(id => {
+          if (!employeeIds.includes(id)) {
+            employeeIds.push(id);
+          }
+        });
+      }
 
-        // Fetch employee details if there are IDs
-        if (employeeIds.length > 0) {
-          await fetchEmployeeDetails(employeeIds);
-          await fetchSpecializedKPIs(employeeIds);
-        } else {
-          setEmployeeDetails([]);
-          setSpecializedKPIs({});
-        }
+      console.log("Extracted employee IDs:", employeeIds);
+      setDebugInfo(prev => ({...prev, employeeIds}));
+
+      // Fetch employee details if there are IDs
+      if (employeeIds.length > 0) {
+        await fetchEmployeeDetails(employeeIds);
+        await fetchSpecializedKPIs(employeeIds, kpiResponse.data);
       } else {
-        setError(response.message || "Failed to fetch team data");
+        setEmployeeDetails([]);
+        setSpecializedKPIs({});
+        console.log("No employee IDs found in team data");
       }
     } catch (error) {
       console.error("Error fetching team data:", error);
-      setError("An error occurred while fetching team data");
+      setError("An error occurred while fetching team data: " + error.message);
     } finally {
       setIsLoading(false);
     }
@@ -69,85 +108,148 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
 
   const fetchEmployeeDetails = async (employeeIds) => {
     try {
+      console.log("Fetching details for employees:", employeeIds);
+      
       // Map each ID to a promise that fetches the employee details
-      const employeePromises = employeeIds.map((id) =>
+      const employeePromises = employeeIds.map((id) => 
         employeeService.getEmployee(id)
       );
 
       // Wait for all promises to resolve
       const employeeResponses = await Promise.all(employeePromises);
+      console.log("Employee responses:", employeeResponses);
 
       // Extract employee data from successful responses
       const employees = employeeResponses
         .filter((response) => response.success)
         .map((response) => response.data);
-
+      
+      console.log("Processed employee details:", employees);
       setEmployeeDetails(employees);
+      setDebugInfo(prev => ({...prev, employeeDetails: employees}));
     } catch (error) {
       console.error("Error fetching employee details:", error);
-      setError("An error occurred while fetching employee details");
+      setError("An error occurred while fetching employee details: " + error.message);
     }
   };
 
-  const fetchSpecializedKPIs = async (employeeIds) => {
+  const fetchSpecializedKPIs = async (employeeIds, kpiResponseData) => {
     try {
-      // Get role criteria from project KPIs
-      const kpiResponse = await kpiService.getProjectKPIs(projectId);
-      if (!kpiResponse.success) {
-        throw new Error("Failed to fetch KPI data");
+      console.log("Fetching specialized KPIs for employees:", employeeIds);
+      
+      if (!kpiResponseData) {
+        throw new Error("KPI data not available");
       }
 
-      const roleCriteria = kpiResponse.data.employee_criteria || [];
+      // Extract role criteria from KPI data
+      const roleCriteria = kpiResponseData.employee_criteria || [];
+      console.log("Role criteria:", roleCriteria);
+      setDebugInfo(prev => ({...prev, roleCriteria}));
 
-      // Get role assignments from team data
-      const roleAssignments = teamData.role_assignments || {};
-
-      // Map employee IDs to their assigned roles
+      // Map employees to their roles
       const employeeRoleMap = {};
-      Object.entries(roleAssignments).forEach(([roleId, employeeId]) => {
-        if (employeeId && roleCriteria[parseInt(roleId)]) {
-          employeeRoleMap[employeeId] = roleCriteria[parseInt(roleId)];
+
+      // Try to get role assignments from team data
+      if (teamData) {
+        // If role_assignments is an array of objects
+        if (teamData.role_assignments && Array.isArray(teamData.role_assignments)) {
+          console.log("Processing role assignments as array:", teamData.role_assignments);
+          teamData.role_assignments.forEach(assignment => {
+            const roleId = parseInt(assignment.roleId, 10);
+            if (roleCriteria[roleId]) {
+              employeeRoleMap[assignment.employeeId] = roleCriteria[roleId];
+            }
+          });
+        } 
+        // If role_assignments is an object mapping roleId to employeeId
+        else if (teamData.role_assignments && typeof teamData.role_assignments === 'object') {
+          console.log("Processing role assignments as object:", teamData.role_assignments);
+          Object.entries(teamData.role_assignments).forEach(([roleId, employeeId]) => {
+            const roleIdNum = parseInt(roleId, 10);
+            if (roleCriteria[roleIdNum]) {
+              employeeRoleMap[employeeId] = roleCriteria[roleIdNum];
+            }
+          });
         }
-      });
+      }
+
+      console.log("Employee-role mapping:", employeeRoleMap);
+      setDebugInfo(prev => ({...prev, employeeRoleMap}));
+
+      // If no role assignments found, use a fallback approach
+      if (Object.keys(employeeRoleMap).length === 0 && roleCriteria.length > 0) {
+        console.log("No role assignments found, using fallback approach");
+        // Assign the first role criteria to each employee as a fallback
+        employeeIds.forEach(id => {
+          employeeRoleMap[id] = roleCriteria[0];
+        });
+      }
 
       // Get specialized KPIs for each employee
       const specializedKPIsResults = {};
+      console.log("Starting individual KPI fetching for each employee");
 
       for (const employeeId of employeeIds) {
-        const roleData = employeeRoleMap[employeeId];
-
-        if (roleData) {
+        try {
+          const roleData = employeeRoleMap[employeeId];
+          
+          if (!roleData) {
+            console.log(`No role data found for employee ${employeeId}, skipping`);
+            continue;
+          }
+          
+          console.log(`Fetching KPIs for employee ${employeeId} with role:`, roleData);
+          
           // Fetch individual employee KPIs
           const response = await employeeService.matchEmployeesWithKPIs({
             project_criteria: {
-              field: kpiResponse.data.project_details.project_type,
-              languages: roleData.skills,
+              field: kpiResponseData.project_details?.project_type || "Software Development",
+              languages: roleData.skills || [],
               people_count: 1,
             },
-            project_kpis: kpiResponse.data.kpis,
+            project_kpis: kpiResponseData.kpis,
             role_criteria: roleData,
           });
+          
+          console.log(`KPI response for employee ${employeeId}:`, response);
 
-          if (response.success && response.matched_employees.length > 0) {
-            specializedKPIsResults[employeeId] =
-              response.matched_employees[0].specialized_kpis;
+          if (response.success && response.matched_employees && response.matched_employees.length > 0) {
+            if (response.matched_employees[0].specialized_kpis) {
+              specializedKPIsResults[employeeId] = response.matched_employees[0].specialized_kpis;
+              console.log(`KPIs added for employee ${employeeId}`);
+            } else {
+              console.log(`No specialized KPIs found in response for employee ${employeeId}`);
+            }
+          } else {
+            console.log(`Failed to get KPIs for employee ${employeeId}: ${response.message || 'Unknown error'}`);
           }
+        } catch (employeeError) {
+          console.error(`Error fetching KPIs for employee ${employeeId}:`, employeeError);
         }
       }
 
+      console.log("Final specialized KPIs result:", specializedKPIsResults);
       setSpecializedKPIs(specializedKPIsResults);
+      setDebugInfo(prev => ({...prev, specializedKPIs: specializedKPIsResults}));
     } catch (error) {
       console.error("Error fetching specialized KPIs:", error);
+      setError("Failed to load specialized KPIs: " + error.message);
     }
   };
 
   const viewEmployeeKPIs = (employeeId, employeeName) => {
+    console.log(`Viewing KPIs for employee ${employeeId} (${employeeName})`);
+    
     if (specializedKPIs[employeeId]) {
+      console.log("KPI data found:", specializedKPIs[employeeId]);
       setSelectedEmployeeKPIs(specializedKPIs[employeeId]);
       setSelectedEmployeeName(employeeName);
-      setSelectedEmployeeId(employeeId); // Add this line
-      setActiveTab("details"); // Reset to details tab
+      setSelectedEmployeeId(employeeId);
+      setActiveTab("details");
       setShowKpiModal(true);
+    } else {
+      console.error(`No specialized KPIs found for employee ${employeeId}`);
+      setError(`No specialized KPIs could be loaded for ${employeeName}. Please try refreshing the page.`);
     }
   };
 
@@ -175,10 +277,15 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
       default:
         return (
           <span className="bg-gray-100 text-gray-800 text-xs px-2 py-0.5 rounded">
-            {status}
+            {status || "Unknown"}
           </span>
         );
     }
+  };
+
+  const handleRetry = () => {
+    setError("");
+    fetchTeamData();
   };
 
   return (
@@ -194,7 +301,7 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
             variant="outline"
             size="sm"
             className="mt-2"
-            onClick={fetchTeamData}
+            onClick={handleRetry}
           >
             Retry
           </Button>
@@ -213,6 +320,22 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
             member.
           </p>
 
+          {/* Debug info in development mode */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="p-2 mb-4 text-xs bg-gray-100 rounded">
+              <details>
+                <summary className="font-bold">Debug Information</summary>
+                <div className="mt-2 overflow-auto max-h-40">
+                  <p>Team Data Loaded: {teamData ? 'Yes' : 'No'}</p>
+                  <p>Employees Loaded: {employeeDetails.length}</p>
+                  <p>KPI Data Loaded: {kpiData ? 'Yes' : 'No'}</p>
+                  <p>Employee IDs in Debug: {debugInfo.employeeIds?.length || 0}</p>
+                  <p>Specialized KPIs Loaded: {Object.keys(specializedKPIs).length}</p>
+                </div>
+              </details>
+            </div>
+          )}
+
           <div className="space-y-4">
             {employeeDetails.map((employee) => (
               <div
@@ -227,27 +350,42 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
                     <p className="text-sm text-gray-600">
                       {employee.Experience?.[0]?.Role || "Unknown Position"}
                     </p>
-                    {/* Display assigned role if available */}
-                    {teamData?.role_assignments &&
-                      Object.entries(teamData.role_assignments).map(
-                        ([roleId, empId]) => {
-                          if (
-                            empId === employee._id &&
-                            kpiData?.employee_criteria
-                          ) {
-                            return (
+                    
+                    {/* Display assigned role if available - handle both array and object formats */}
+                    {teamData?.role_assignments && (
+                      <>
+                        {/* For array format */}
+                        {Array.isArray(teamData.role_assignments) && 
+                          teamData.role_assignments
+                            .filter(assignment => assignment.employeeId === employee._id)
+                            .map((assignment) => (
                               <span
-                                key={roleId}
-                                className="mt-1 text-xs px-2 py-0.5 bg-blue-100 text-blue-800 rounded inline-block"
+                                key={assignment.roleId}
+                                className="mt-1 text-xs px-2 py-0.5 bg-blue-100 text-blue-800 rounded inline-block mr-1"
                               >
-                                {kpiData.employee_criteria[parseInt(roleId)]
-                                  ?.role || `Role ${roleId}`}
+                                {assignment.roleName || `Role ${assignment.roleId}`}
                               </span>
-                            );
-                          }
-                          return null;
+                            ))
                         }
-                      )}
+                        
+                        {/* For object format */}
+                        {!Array.isArray(teamData.role_assignments) && 
+                          Object.entries(teamData.role_assignments)
+                            .filter(([_, empId]) => empId === employee._id)
+                            .map(([roleId]) => {
+                              const roleName = kpiData?.employee_criteria?.[parseInt(roleId, 10)]?.role || `Role ${roleId}`;
+                              return (
+                                <span
+                                  key={roleId}
+                                  className="mt-1 text-xs px-2 py-0.5 bg-blue-100 text-blue-800 rounded inline-block mr-1"
+                                >
+                                  {roleName}
+                                </span>
+                              );
+                            })
+                        }
+                      </>
+                    )}
                   </div>
 
                   <div className="flex space-x-2">
@@ -259,7 +397,7 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
                       }
                       disabled={!specializedKPIs[employee._id]}
                     >
-                      View KPIs
+                      {specializedKPIs[employee._id] ? "View KPIs" : "Loading KPIs..."}
                     </Button>
                   </div>
                 </div>
@@ -274,9 +412,10 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
                           (kpi) => kpi.status === "On Track"
                         ).length;
 
-                        const percentage = Math.round(
-                          (onTrackCount / totalKPIs) * 100
-                        );
+                        const percentage = totalKPIs > 0 
+                          ? Math.round((onTrackCount / totalKPIs) * 100)
+                          : 0;
+                          
                         let statusColor = "bg-red-100 text-red-800";
                         if (percentage >= 75)
                           statusColor = "bg-green-100 text-green-800";
@@ -314,56 +453,56 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
       )}
 
       {/* Employee KPIs Modal */}
-      <Modal
-        isOpen={showKpiModal}
-        onClose={() => setShowKpiModal(false)}
-        title={`Specialized KPIs for ${selectedEmployeeName}`}
-        size="lg"
-      >
-        <div className="space-y-6">
-          <p className="text-sm text-gray-600">
-            These KPIs are tailored specifically for {selectedEmployeeName}{" "}
-            based on their skills and assigned role requirements.
-          </p>
+      {showKpiModal && selectedEmployeeKPIs && (
+        <Modal
+          isOpen={showKpiModal}
+          onClose={() => setShowKpiModal(false)}
+          title={`Specialized KPIs for ${selectedEmployeeName}`}
+          size="lg"
+        >
+          <div className="space-y-6">
+            <p className="text-sm text-gray-600">
+              These KPIs are tailored specifically for {selectedEmployeeName}{" "}
+              based on their skills and assigned role requirements.
+            </p>
 
-          {/* Add tabs for Details and Progress */}
-          <div className="flex mb-4 border-b">
-            <button
-              className={`px-4 py-2 text-sm font-medium ${
-                activeTab === "details"
-                  ? "text-blue-600 border-b-2 border-blue-600"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-              onClick={() => setActiveTab("details")}
-            >
-              KPI Details
-            </button>
-            <button
-              className={`px-4 py-2 text-sm font-medium ${
-                activeTab === "progress"
-                  ? "text-blue-600 border-b-2 border-blue-600"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-              onClick={() => setActiveTab("progress")}
-            >
-              Track Progress
-            </button>
-            <button
-              className={`px-4 py-2 text-sm font-medium ${
-                activeTab === "comparison"
-                  ? "text-blue-600 border-b-2 border-blue-600"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-              onClick={() => setActiveTab("comparison")}
-            >
-              Compare to Project
-            </button>
-          </div>
+            {/* Add tabs for different views */}
+            <div className="flex mb-4 border-b">
+              <button
+                className={`px-4 py-2 text-sm font-medium ${
+                  activeTab === "details"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+                onClick={() => setActiveTab("details")}
+              >
+                KPI Details
+              </button>
+              <button
+                className={`px-4 py-2 text-sm font-medium ${
+                  activeTab === "progress"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+                onClick={() => setActiveTab("progress")}
+              >
+                Track Progress
+              </button>
+              <button
+                className={`px-4 py-2 text-sm font-medium ${
+                  activeTab === "comparison"
+                    ? "text-blue-600 border-b-2 border-blue-600"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+                onClick={() => setActiveTab("comparison")}
+              >
+                Compare to Project
+              </button>
+            </div>
 
-          {activeTab === "details" && (
-            <div>
-              {selectedEmployeeKPIs &&
-                Object.entries(selectedEmployeeKPIs).map(([category, kpis]) => (
+            {activeTab === "details" && (
+              <div>
+                {Object.entries(selectedEmployeeKPIs).map(([category, kpis]) => (
                   <div key={category} className="mb-6 space-y-3">
                     <h3 className="font-medium text-gray-800 capitalize text-md">
                       {category.replace("_", " ")}
@@ -393,35 +532,36 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {activeTab === "progress" && (
+              <IndividualKPITracker
+                employeeId={selectedEmployeeId}
+                employeeName={selectedEmployeeName}
+                employeeKPIs={selectedEmployeeKPIs}
+                onUpdateProgress={(id, data) =>
+                  kpiService.updateIndividualKPIProgress(projectId, id, data)
+                }
+              />
+            )}
+
+            {activeTab === "comparison" && projectKPIs && (
+              <KPIComparisonChart
+                projectKPIs={projectKPIs}
+                employeeKPIs={selectedEmployeeKPIs}
+                employeeName={selectedEmployeeName}
+              />
+            )}
+
+            <div className="flex justify-end">
+              <Button variant="primary" onClick={() => setShowKpiModal(false)}>
+                Close
+              </Button>
             </div>
-          )}
-
-          {activeTab === "progress" && (
-            <IndividualKPITracker
-              employeeId={selectedEmployeeId}
-              employeeName={selectedEmployeeName}
-              employeeKPIs={selectedEmployeeKPIs}
-              onUpdateProgress={(id, data) =>
-                kpiService.updateIndividualKPIProgress(projectId, id, data)
-              }
-            />
-          )}
-
-          {activeTab === "comparison" && (
-            <KPIComparisonChart
-              projectKPIs={projectKPIs}
-              employeeKPIs={selectedEmployeeKPIs}
-              employeeName={selectedEmployeeName}
-            />
-          )}
-
-          <div className="flex justify-end">
-            <Button variant="primary" onClick={() => setShowKpiModal(false)}>
-              Close
-            </Button>
           </div>
-        </div>
-      </Modal>
+        </Modal>
+      )}
     </Card>
   );
 };

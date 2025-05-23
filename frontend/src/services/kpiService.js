@@ -234,5 +234,25 @@ export const kpiService = {
                 message: error.response?.data?.message || 'Failed to recalibrate KPIs'
             };
         }
+    },
+
+        /**
+     * Update individual KPI progress for an employee on a project
+     * @param {string} projectId - The ID of the project
+     * @param {string} employeeId - The ID of the employee
+     * @param {Object} progressData - The progress data
+     * @returns {Promise<Object>} - The API response
+     */
+    updateIndividualKPIProgress: async (projectId, employeeId, progressData) => {
+    try {
+        const response = await api.post(`/kpi/projects/${projectId}/employees/${employeeId}/progress`, progressData);
+        return response.data;
+    } catch (error) {
+        console.error('Error updating individual KPI progress:', error);
+        return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to update KPI progress'
+        };
+    }
     }
 };

@@ -375,11 +375,32 @@ def match_employees_with_kpis():
         # Get all employees from MongoDB
         employees = mongodb_service.find_many('Resumes')
 
+        # Add this debug printing
+        print(f"Project criteria: {project_criteria}")
+        print(f"Role criteria: {role_criteria}")
+        print(f"People count: {people_count}")
+        print(f"Total employees: {len(employees) if employees else 0}")
+
         # Import candidate ranker here to avoid circular imports
         from modules.employee_matching.candidate_ranker import CandidateRanker
         from modules.employee_matching.skill_matcher import SkillMatcher
         from modules.employee_matching.experience_analyzer import ExperienceAnalyzer
         from modules.kpi_generation.individual_kpi_generator import IndividualKPIGenerator
+
+        # Filter employees by experience if field is specified
+        if 'field' in project_criteria and project_criteria['field']:
+            filtered_employees = []
+
+            for employee in employees:
+                experience_items = employee.get('Experience', [])
+                has_relevant_exp, _, _ = ExperienceAnalyzer.has_relevant_experience(
+                    experience_items, project_criteria['field']
+                )
+
+                if has_relevant_exp:
+                    filtered_employees.append(employee)
+
+            employees = filtered_employees
 
         # Rank all candidates - include even those with partial matches
         ranked_candidates = CandidateRanker.rank_candidates(
@@ -403,16 +424,27 @@ def match_employees_with_kpis():
 
             # Get skill gap and compatibility details
             candidate_skills = candidate.get('Skills', [])
-            project_languages = project_criteria.get('languages', '').split(',') if isinstance(
-                project_criteria.get('languages'), str) else project_criteria.get('languages', [])
+
+            # Ensure project_languages is properly handled
+            project_languages = []
+            if isinstance(project_criteria.get('languages'), str):
+                project_languages = [lang.strip() for lang in project_criteria['languages'].split(',') if lang.strip()]
+            elif isinstance(project_criteria.get('languages'), list):
+                project_languages = project_criteria['languages']
+
             skill_compatibility = SkillMatcher.calculate_skill_compatibility(candidate_skills, project_languages)
 
             # Generate specialized KPIs if project KPIs are provided
             specialized_kpis = None
             if project_kpis and role_criteria:
-                specialized_kpis = IndividualKPIGenerator.generate_individual_kpis(
-                    project_kpis, role_criteria, candidate
-                )
+                try:
+                    specialized_kpis = IndividualKPIGenerator.generate_individual_kpis(
+                        project_kpis, role_criteria, candidate
+                    )
+                    print(f"Generated specialized KPIs for {candidate.get('Name', 'employee')}")
+                except Exception as kpi_error:
+                    print(f"Error generating individual KPIs: {str(kpi_error)}")
+                    specialized_kpis = {}
 
             matched_employees.append({
                 'employee': candidate,
@@ -431,7 +463,11 @@ def match_employees_with_kpis():
         })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()  # Print full stack trace
+        print(f"Error matching employees: {str(e)}")
         return jsonify({
             'success': False,
-            'message': f"Error matching employees: {str(e)}"
+            'message': f"Error matching employees: {str(e)}",
+            'matched_employees': []
         }), 500

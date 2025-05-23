@@ -1,0 +1,56 @@
+2025-05-22 00:22:19 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:22:19 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:22:33 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:22:33 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:24:17 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:24:17 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:25:58 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:25:58 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:26:10 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:26:10 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:26:22 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:26:22 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:29:04 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:29:04 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:29:48 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:29:48 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:30:49 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:30:49 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:33:32 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:33:32 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:33:53 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:33:53 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:34:49 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:34:49 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:34:54 [INFO] app.register_additional_routes - Additional routes registered
+2025-05-22 00:34:54 [INFO] app.<module> - Starting server on port 5000
+2025-05-22 00:34:55 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:34:55 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:34:59 [INFO] app.register_additional_routes - Additional routes registered
+2025-05-22 00:34:59 [INFO] app.<module> - Starting server on port 5000
+2025-05-22 00:48:08 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:48:08 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:50:23 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:50:23 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:53:03 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:53:03 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:58:29 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:58:29 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:58:39 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:58:39 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:59:12 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:59:12 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:59:17 [INFO] app.register_additional_routes - Additional routes registered
+2025-05-22 00:59:17 [INFO] app.<module> - Starting server on port 5000
+2025-05-22 00:59:17 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:59:17 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:59:22 [INFO] app.register_additional_routes - Additional routes registered
+2025-05-22 00:59:22 [INFO] app.<module> - Starting server on port 5000
+2025-05-22 00:59:48 [INFO] app.create_app - Starting application in development mode
+2025-05-22 00:59:48 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 00:59:53 [INFO] app.register_additional_routes - Additional routes registered
+2025-05-22 00:59:53 [INFO] app.<module> - Starting server on port 5000
+2025-05-22 01:38:19 [INFO] app.create_app - Starting application in development mode
+2025-05-22 01:38:19 [INFO] app.ensure_directories - Application directories initialized
+2025-05-22 01:38:23 [INFO] app.register_additional_routes - Additional routes registered
+2025-05-22 01:38:23 [INFO] app.<module> - Starting server on port 5000
