@@ -58,3 +58,47 @@ def get_file_extension(filename):
         str: The file extension.
     """
     return filename.rsplit('.', 1)[1].lower() if '.' in filename else ""
+
+
+def validate_file_size(file, max_size_mb=10):
+    """
+    Validate file size is within limits.
+
+    Args:
+        file: File object
+        max_size_mb: Maximum size in megabytes
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    # Get file size
+    file.seek(0, 2)  # Seek to end
+    file_size = file.tell()
+    file.seek(0)  # Reset to beginning
+
+    max_size_bytes = max_size_mb * 1024 * 1024
+
+    if file_size > max_size_bytes:
+        return False, f"File size ({file_size / 1024 / 1024:.1f}MB) exceeds limit ({max_size_mb}MB)"
+
+    return True, None
+
+
+def validate_file_type(filename, allowed_extensions=None):
+    """
+    Validate file type against allowed extensions.
+
+    Args:
+        filename: Name of the file
+        allowed_extensions: Set of allowed extensions
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if not allowed_extensions:
+        allowed_extensions = current_app.config.get('ALLOWED_EXTENSIONS', {'pdf', 'jpg', 'jpeg', 'png'})
+
+    if not allowed_file(filename, allowed_extensions):
+        return False, f"File type not allowed. Allowed types: {', '.join(allowed_extensions)}"
+
+    return True, None

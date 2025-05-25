@@ -264,6 +264,8 @@ def insert_sample_data(db):
         print(f"Added KPIs for {len(project_ids)} sample projects")
 
 
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Initialize the application database')
     parser.add_argument('--drop', action='store_true', help='Drop existing collections before initialization')

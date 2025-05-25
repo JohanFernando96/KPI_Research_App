@@ -16,6 +16,26 @@ class APIError(Exception):
         return rv
 
 
+class KPIGenerationError(APIError):
+    """KPI generation error."""
+
+    def __init__(self, message="KPI generation failed", payload=None):
+        super().__init__(message, 500, payload)
+
+
+class TeamCompositionError(APIError):
+    """Team composition error."""
+
+    def __init__(self, message="Team composition error", payload=None):
+        super().__init__(message, 400, payload)
+
+
+class OptimizationError(APIError):
+    """Optimization error."""
+
+    def __init__(self, message="Optimization failed", payload=None):
+        super().__init__(message, 500, payload)
+
 class NotFoundError(APIError):
     """Resource not found error."""
 
@@ -62,4 +82,23 @@ def register_error_handlers(app):
         response.status_code = 500
         return response
 
+    @app.errorhandler(KPIGenerationError)
+    def handle_kpi_generation_error(error):
+        response = jsonify(error.to_dict())
+        response.status_code = error.status_code
+        return response
+
+    @app.errorhandler(TeamCompositionError)
+    def handle_team_composition_error(error):
+        response = jsonify(error.to_dict())
+        response.status_code = error.status_code
+        return response
+
+    @app.errorhandler(OptimizationError)
+    def handle_optimization_error(error):
+        response = jsonify(error.to_dict())
+        response.status_code = error.status_code
+        return response
+
     return app
+

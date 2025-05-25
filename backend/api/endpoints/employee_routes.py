@@ -381,7 +381,7 @@ def match_employees_with_kpis():
         print(f"People count: {people_count}")
         print(f"Total employees: {len(employees) if employees else 0}")
 
-        # Import candidate ranker here to avoid circular imports
+        # Import modules
         from modules.employee_matching.candidate_ranker import CandidateRanker
         from modules.employee_matching.skill_matcher import SkillMatcher
         from modules.employee_matching.experience_analyzer import ExperienceAnalyzer
@@ -435,7 +435,7 @@ def match_employees_with_kpis():
             skill_compatibility = SkillMatcher.calculate_skill_compatibility(candidate_skills, project_languages)
 
             # Generate specialized KPIs if project KPIs are provided
-            specialized_kpis = None
+            specialized_kpis = {}
             if project_kpis and role_criteria:
                 try:
                     specialized_kpis = IndividualKPIGenerator.generate_individual_kpis(
@@ -444,7 +444,8 @@ def match_employees_with_kpis():
                     print(f"Generated specialized KPIs for {candidate.get('Name', 'employee')}")
                 except Exception as kpi_error:
                     print(f"Error generating individual KPIs: {str(kpi_error)}")
-                    specialized_kpis = {}
+                    # Use project KPIs as fallback
+                    specialized_kpis = project_kpis
 
             matched_employees.append({
                 'employee': candidate,
@@ -452,7 +453,7 @@ def match_employees_with_kpis():
                 'total_score': total_score,
                 'compatibility_percentage': compatibility_percentage,
                 'skill_compatibility': skill_compatibility,
-                'specialized_kpis': specialized_kpis
+                'specialized_kpis': specialized_kpis  # Always include this, even if empty
             })
 
         return jsonify({
@@ -470,4 +471,129 @@ def match_employees_with_kpis():
             'success': False,
             'message': f"Error matching employees: {str(e)}",
             'matched_employees': []
+        }), 500
+
+
+@employee_blueprint.route('/<employee_id>/role-alignment', methods=['POST'])
+def analyze_role_alignment(employee_id):
+    """
+    Analyze how well an employee's skills align with a specific role.
+    """
+    try:
+        data = request.json
+        role = data.get('role')
+
+        if not role:
+            raise ValidationError("Role is required")
+
+        # Get employee
+        employee = mongodb_service.find_one('Resumes', {'_id': ObjectId(employee_id)})
+        if not employee:
+            raise NotFoundError(f"Employee {employee_id} not found")
+
+        # Analyze alignment
+        from modules.employee_matching.role_skill_aligner import RoleSkillAligner
+        alignment_analysis = RoleSkillAligner.analyze_role_alignment(employee, role)
+
+        return jsonify({
+            'success': True,
+            'alignment_analysis': alignment_analysis
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f"Error analyzing role alignment: {str(e)}"
+        }), 500
+
+
+@employee_blueprint.route('/match-with-team-context', methods=['POST'])
+def match_employees_with_team_context():
+    """
+    Match employees considering existing team composition.
+    """
+    try:
+        data = request.json
+
+        project_criteria = data.get('project_criteria', {})
+        current_team_ids = data.get('current_team_ids', [])
+        positions_to_fill = data.get('positions_to_fill', 1)
+
+        # Get current team members
+        current_team = []
+        for team_id in current_team_ids:
+            member = mongodb_service.find_one('Resumes', {'_id': ObjectId(team_id)})
+            if member:
+                current_team.append(member)
+
+        # Analyze current team to find gaps
+        current_skills = set()
+        for member in current_team:
+            current_skills.update(member.get('Skills', []))
+
+        # Get all employees except current team
+        all_employees = mongodb_service.find_many('Resumes')
+        available_employees = [
+            emp for emp in all_employees
+            if str(emp['_id']) not in current_team_ids
+        ]
+
+        # Enhance project criteria with team context
+        enhanced_criteria = project_criteria.copy()
+        enhanced_criteria['current_team_skills'] = list(current_skills)
+        enhanced_criteria['team_size_target'] = len(current_team) + positions_to_fill
+
+        # Rank candidates with team context
+        from modules.employee_matching.candidate_ranker import CandidateRanker
+
+        # Custom weights favoring complementary skills
+        weights = {
+            "skill_match": 0.3,  # Lower weight on exact match
+            "complementary_skills": 0.3,  # New: skills team doesn't have
+            "experience_relevance": 0.25,
+            "years_experience": 0.1,
+            "project_type_match": 0.05
+        }
+
+        ranked_candidates = []
+        for candidate in available_employees:
+            scores = CandidateRanker.calculate_candidate_scores(candidate, enhanced_criteria)
+
+            # Calculate complementary skills score
+            candidate_skills = set(candidate.get('Skills', []))
+            unique_skills = candidate_skills - current_skills
+            complementary_score = len(unique_skills) / len(candidate_skills) if candidate_skills else 0
+            scores['complementary_skills'] = complementary_score
+
+            # Calculate total score
+            total_score = sum(weights.get(key, 0) * scores.get(key, 0) for key in weights)
+
+            ranked_candidates.append({
+                'candidate': candidate,
+                'scores': scores,
+                'total_score': total_score,
+                'unique_skills_count': len(unique_skills)
+            })
+
+        # Sort by score
+        ranked_candidates.sort(key=lambda x: x['total_score'], reverse=True)
+
+        # Select top candidates
+        top_candidates = ranked_candidates[:positions_to_fill]
+
+        # Serialize for response
+        for candidate_data in top_candidates:
+            candidate_data['candidate']['_id'] = str(candidate_data['candidate']['_id'])
+
+        return jsonify({
+            'success': True,
+            'matched_employees': top_candidates,
+            'current_team_size': len(current_team),
+            'current_team_skills': list(current_skills)[:20]  # Limit for response size
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f"Error matching employees with team context: {str(e)}"
         }), 500

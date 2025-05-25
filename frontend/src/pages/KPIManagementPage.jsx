@@ -7,6 +7,8 @@ import BurndownChartView from "../components/kpi-management/BurndownChartView";
 import KPIAdjuster from "../components/kpi-management/KPIAdjuster";
 import KPIRadarChart from "../components/kpi-management/KPIRadarChart";
 import KPIProgressTracker from "../components/kpi-management/KPIProgressTracker";
+import TeamKPIDashboard from "../components/kpi-management/TeamKPIDashboard";
+import TeamAnalysisDashboard from "../components/kpi-management/TeamAnalysisDashboard"; // Add this import
 import Card from "../components/common/Card";
 import Button from "../components/common/Button";
 import Loading from "../components/common/Loading";
@@ -15,7 +17,6 @@ import { projectService } from "../services/projectService";
 import { kpiService } from "../services/kpiService";
 import { useLocation } from "react-router-dom";
 import EmployeeAssignmentCard from "../components/talent-pool/EmployeeAssignmentCard";
-import TeamKPIDashboard from "../components/kpi-management/TeamKPIDashboard";
 
 const KPIManagementPage = () => {
   const { projectId } = useParams();
@@ -246,6 +247,15 @@ const KPIManagementPage = () => {
             projectTimeline={project?.project_timeline || 90}
           />
         );
+
+      case "teamanalysis":
+      return (
+        <TeamAnalysisDashboard
+          projectId={projectId}
+          projectData={project}
+          teamData={project?.team}
+        />
+      );
 
       case "teamkpis":
         return (
@@ -713,6 +723,16 @@ const KPIManagementPage = () => {
                       onClick={() => setActiveTab("teamkpis")}
                     >
                       Team KPIs
+                    </button>
+                    <button
+                      className={`px-6 py-3 text-sm font-medium whitespace-nowrap ${
+                        activeTab === "teamanalysis"
+                          ? "text-blue-600 border-b-2 border-blue-600"
+                          : "text-gray-500 hover:text-gray-700"
+                      }`}
+                      onClick={() => setActiveTab("teamanalysis")}
+                    >
+                      Team Analysis
                     </button>
                     <button
                       className={`px-6 py-3 text-sm font-medium whitespace-nowrap ${

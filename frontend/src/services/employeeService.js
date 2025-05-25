@@ -223,5 +223,43 @@ export const employeeService = {
                 matched_employees: []
             };
         }
+    },
+
+    /**
+     * Analyze role alignment for an employee
+     * @param {string} employeeId - The ID of the employee
+     * @param {Object} roleData - The role criteria and project context
+     * @returns {Promise<Object>} - The API response
+     */
+    analyzeRoleAlignment: async (employeeId, roleData) => {
+        try {
+            const response = await api.post(`/employees/${employeeId}/role-alignment`, roleData);
+            return response.data;
+        } catch (error) {
+            console.error('Error analyzing role alignment:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to analyze role alignment'
+            };
+        }
+    },
+
+    /**
+     * Match employees with team context
+     * @param {Object} matchData - The matching criteria including existing team
+     * @returns {Promise<Object>} - The API response
+     */
+    matchWithTeamContext: async (data) => {
+        try {
+            const response = await api.post('/employees/match-with-team-context', data);
+            return response.data;
+        } catch (error) {
+            console.error('Error matching with team context:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to match with team context',
+                matched_employees: []
+            };
+        }
     }
 };

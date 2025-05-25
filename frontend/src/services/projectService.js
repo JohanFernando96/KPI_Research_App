@@ -174,5 +174,23 @@ export const projectService = {
                 message: errorMessage
             };
         }
+    },
+
+    /**
+     * Optimize team composition for a project
+     * @param {string} projectId - The ID of the project
+     * @returns {Promise<Object>} - The API response
+     */
+    optimizeTeam: async (projectId) => {
+        try {
+            const response = await api.post(`/projects/${projectId}/optimize-team`);
+            return response.data;
+        } catch (error) {
+            console.error('Error optimizing team:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to optimize team'
+            };
+        }
     }
 };

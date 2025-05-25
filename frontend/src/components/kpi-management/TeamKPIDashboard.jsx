@@ -134,108 +134,170 @@ const TeamKPIDashboard = ({ projectId, projectKPIs }) => {
   };
 
   const fetchSpecializedKPIs = async (employeeIds, kpiResponseData) => {
-    try {
-      console.log("Fetching specialized KPIs for employees:", employeeIds);
-      
-      if (!kpiResponseData) {
-        throw new Error("KPI data not available");
-      }
+  try {
+    console.log("Fetching specialized KPIs for employees:", employeeIds);
+    
+    if (!kpiResponseData) {
+      throw new Error("KPI data not available");
+    }
 
-      // Extract role criteria from KPI data
-      const roleCriteria = kpiResponseData.employee_criteria || [];
-      console.log("Role criteria:", roleCriteria);
-      setDebugInfo(prev => ({...prev, roleCriteria}));
+    // Extract role criteria from KPI data
+    const roleCriteria = kpiResponseData.employee_criteria || [];
+    console.log("Role criteria:", roleCriteria);
+    setDebugInfo(prev => ({...prev, roleCriteria}));
 
-      // Map employees to their roles
-      const employeeRoleMap = {};
+    // Map employees to their roles
+    const employeeRoleMap = {};
 
-      // Try to get role assignments from team data
-      if (teamData) {
-        // If role_assignments is an array of objects
-        if (teamData.role_assignments && Array.isArray(teamData.role_assignments)) {
-          console.log("Processing role assignments as array:", teamData.role_assignments);
-          teamData.role_assignments.forEach(assignment => {
-            const roleId = parseInt(assignment.roleId, 10);
-            if (roleCriteria[roleId]) {
-              employeeRoleMap[assignment.employeeId] = roleCriteria[roleId];
-            }
-          });
-        } 
-        // If role_assignments is an object mapping roleId to employeeId
-        else if (teamData.role_assignments && typeof teamData.role_assignments === 'object') {
-          console.log("Processing role assignments as object:", teamData.role_assignments);
-          Object.entries(teamData.role_assignments).forEach(([roleId, employeeId]) => {
-            const roleIdNum = parseInt(roleId, 10);
-            if (roleCriteria[roleIdNum]) {
-              employeeRoleMap[employeeId] = roleCriteria[roleIdNum];
-            }
-          });
-        }
-      }
-
-      console.log("Employee-role mapping:", employeeRoleMap);
-      setDebugInfo(prev => ({...prev, employeeRoleMap}));
-
-      // If no role assignments found, use a fallback approach
-      if (Object.keys(employeeRoleMap).length === 0 && roleCriteria.length > 0) {
-        console.log("No role assignments found, using fallback approach");
-        // Assign the first role criteria to each employee as a fallback
-        employeeIds.forEach(id => {
-          employeeRoleMap[id] = roleCriteria[0];
+    // Try to get role assignments from team data
+    if (teamData) {
+      // If role_assignments is an array of objects
+      if (teamData.role_assignments && Array.isArray(teamData.role_assignments)) {
+        console.log("Processing role assignments as array:", teamData.role_assignments);
+        teamData.role_assignments.forEach(assignment => {
+          const roleId = parseInt(assignment.roleId, 10);
+          if (roleCriteria[roleId]) {
+            employeeRoleMap[assignment.employeeId] = {
+              ...roleCriteria[roleId],
+              roleId: roleId
+            };
+          }
+        });
+      } 
+      // If role_assignments is an object mapping roleId to employeeId
+      else if (teamData.role_assignments && typeof teamData.role_assignments === 'object') {
+        console.log("Processing role assignments as object:", teamData.role_assignments);
+        Object.entries(teamData.role_assignments).forEach(([roleId, employeeId]) => {
+          const roleIdNum = parseInt(roleId, 10);
+          if (roleCriteria[roleIdNum]) {
+            employeeRoleMap[employeeId] = {
+              ...roleCriteria[roleIdNum],
+              roleId: roleIdNum
+            };
+          }
         });
       }
+    }
 
-      // Get specialized KPIs for each employee
-      const specializedKPIsResults = {};
-      console.log("Starting individual KPI fetching for each employee");
+    console.log("Employee-role mapping:", employeeRoleMap);
+    setDebugInfo(prev => ({...prev, employeeRoleMap}));
 
-      for (const employeeId of employeeIds) {
-        try {
-          const roleData = employeeRoleMap[employeeId];
-          
-          if (!roleData) {
-            console.log(`No role data found for employee ${employeeId}, skipping`);
-            continue;
-          }
-          
-          console.log(`Fetching KPIs for employee ${employeeId} with role:`, roleData);
-          
-          // Fetch individual employee KPIs
-          const response = await employeeService.matchEmployeesWithKPIs({
-            project_criteria: {
-              field: kpiResponseData.project_details?.project_type || "Software Development",
-              languages: roleData.skills || [],
-              people_count: 1,
-            },
-            project_kpis: kpiResponseData.kpis,
-            role_criteria: roleData,
-          });
-          
-          console.log(`KPI response for employee ${employeeId}:`, response);
+    // If no role assignments found, use a fallback approach
+    if (Object.keys(employeeRoleMap).length === 0 && roleCriteria.length > 0) {
+      console.log("No role assignments found, using fallback approach");
+      // Assign roles based on index
+      employeeIds.forEach((id, index) => {
+        if (roleCriteria[index % roleCriteria.length]) {
+          employeeRoleMap[id] = {
+            ...roleCriteria[index % roleCriteria.length],
+            roleId: index % roleCriteria.length
+          };
+        }
+      });
+    }
 
-          if (response.success && response.matched_employees && response.matched_employees.length > 0) {
+    // Get specialized KPIs for each employee
+    const specializedKPIsResults = {};
+    console.log("Starting individual KPI fetching for each employee");
+
+    // Fetch all employees' data first
+    const employeeDataPromises = employeeIds.map(id => employeeService.getEmployee(id));
+    const employeeDataResponses = await Promise.all(employeeDataPromises);
+    
+    const employeeDataMap = {};
+    employeeDataResponses.forEach((response, index) => {
+      if (response.success) {
+        employeeDataMap[employeeIds[index]] = response.data;
+      }
+    });
+
+    // Now fetch KPIs for each employee with their actual data
+    for (const employeeId of employeeIds) {
+      try {
+        const roleData = employeeRoleMap[employeeId];
+        const employeeData = employeeDataMap[employeeId];
+        
+        if (!roleData || !employeeData) {
+          console.log(`Missing data for employee ${employeeId}, skipping`);
+          continue;
+        }
+        
+        console.log(`Fetching KPIs for employee ${employeeId} with role:`, roleData);
+        
+        // Match this specific employee with their role criteria
+        const response = await employeeService.matchEmployeesWithKPIs({
+          project_criteria: {
+            field: kpiResponseData.project_details?.project_type || "Software Development",
+            languages: roleData.skills || [],
+            people_count: 1,
+            project_type: kpiResponseData.project_details?.project_type || "Software Development",
+          },
+          project_kpis: kpiResponseData.kpis,
+          role_criteria: roleData,
+        });
+        
+        console.log(`KPI response for employee ${employeeId}:`, response);
+
+        if (response.success && response.matched_employees && response.matched_employees.length > 0) {
+          // Find the matched employee in the response
+          const matchedEmployee = response.matched_employees.find(
+            matched => matched.employee._id === employeeId || 
+                      matched.employee.Name === employeeData.Name
+          );
+          
+          if (matchedEmployee && matchedEmployee.specialized_kpis) {
+            specializedKPIsResults[employeeId] = matchedEmployee.specialized_kpis;
+            console.log(`KPIs added for employee ${employeeId}:`, matchedEmployee.specialized_kpis);
+          } else {
+            // If not found by exact match, use the first result
             if (response.matched_employees[0].specialized_kpis) {
               specializedKPIsResults[employeeId] = response.matched_employees[0].specialized_kpis;
-              console.log(`KPIs added for employee ${employeeId}`);
-            } else {
-              console.log(`No specialized KPIs found in response for employee ${employeeId}`);
+              console.log(`KPIs added for employee ${employeeId} (using first match)`);
             }
-          } else {
-            console.log(`Failed to get KPIs for employee ${employeeId}: ${response.message || 'Unknown error'}`);
           }
-        } catch (employeeError) {
-          console.error(`Error fetching KPIs for employee ${employeeId}:`, employeeError);
+        } else {
+          console.log(`Failed to get KPIs for employee ${employeeId}: ${response.message || 'Unknown error'}`);
+          
+          // Generate default KPIs as fallback
+          if (kpiResponseData.kpis) {
+            console.log(`Generating default KPIs for employee ${employeeId}`);
+            // Import the IndividualKPIGenerator if available
+            try {
+              const { IndividualKPIGenerator } = await import('../../modules/kpi_generation/individual_kpi_generator');
+              const defaultKPIs = IndividualKPIGenerator.generate_individual_kpis(
+                kpiResponseData.kpis,
+                roleData,
+                employeeData
+              );
+              specializedKPIsResults[employeeId] = defaultKPIs;
+            } catch (importError) {
+              // If import fails, use the project KPIs as fallback
+              specializedKPIsResults[employeeId] = kpiResponseData.kpis;
+              console.log(`Using project KPIs as fallback for employee ${employeeId}`);
+            }
+          }
+        }
+      } catch (employeeError) {
+        console.error(`Error fetching KPIs for employee ${employeeId}:`, employeeError);
+        
+        // Use project KPIs as fallback
+        if (kpiResponseData.kpis) {
+          specializedKPIsResults[employeeId] = kpiResponseData.kpis;
+          console.log(`Using project KPIs as fallback for employee ${employeeId} due to error`);
         }
       }
-
-      console.log("Final specialized KPIs result:", specializedKPIsResults);
-      setSpecializedKPIs(specializedKPIsResults);
-      setDebugInfo(prev => ({...prev, specializedKPIs: specializedKPIsResults}));
-    } catch (error) {
-      console.error("Error fetching specialized KPIs:", error);
-      setError("Failed to load specialized KPIs: " + error.message);
     }
-  };
+
+    console.log("Final specialized KPIs result:", specializedKPIsResults);
+    console.log("Number of employees with KPIs:", Object.keys(specializedKPIsResults).length);
+    
+    setSpecializedKPIs(specializedKPIsResults);
+    setDebugInfo(prev => ({...prev, specializedKPIs: specializedKPIsResults}));
+  } catch (error) {
+    console.error("Error fetching specialized KPIs:", error);
+    setError("Failed to load specialized KPIs: " + error.message);
+  }
+};
 
   const viewEmployeeKPIs = (employeeId, employeeName) => {
     console.log(`Viewing KPIs for employee ${employeeId} (${employeeName})`);

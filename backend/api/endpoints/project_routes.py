@@ -444,3 +444,118 @@ def add_employee_to_team(project_id):
             'success': False,
             'message': f"Error assigning employee to role: {str(e)}"
         }), 500
+
+
+@project_blueprint.route('/<project_id>/optimize-team', methods=['POST'])
+def optimize_project_team(project_id):
+    """
+    Optimize team composition for better KPIs.
+    """
+    try:
+        # Get project
+        project = mongodb_service.find_one('Projects', {'_id': ObjectId(project_id)})
+        if not project:
+            raise NotFoundError(f"Project {project_id} not found")
+
+        # Get current team
+        team_data = project.get('team', {})
+        current_team_ids = team_data.get('employee_ids', [])
+
+        # Analyze current team performance potential
+        current_team = []
+        for emp_id in current_team_ids:
+            employee = mongodb_service.find_one('Resumes', {'_id': ObjectId(emp_id)})
+            if employee:
+                current_team.append(employee)
+
+        # Get project requirements
+        project_details = {
+            'project_type': project.get('project_type'),
+            'project_timeline': project.get('project_timeline'),
+            'project_team_size': project.get('project_team_size'),
+            'project_languages': project.get('project_languages'),
+            'project_sprints': project.get('project_sprints', 5)
+        }
+
+        # Analyze current team
+        from modules.kpi_generation.kpi_predictor import KPIPredictor
+        current_analysis = KPIGenerator._analyze_team_composition(current_team, project_details)
+        current_predictions = KPIPredictor.predict_project_success(current_analysis, project_details)
+
+        # Find optimization opportunities
+        optimization_suggestions = []
+
+        # Check for skill gaps
+        if current_analysis['missing_skills']:
+            # Find employees who have missing skills
+            missing_skills = current_analysis['missing_skills']
+
+            all_employees = mongodb_service.find_many('Resumes')
+            skill_providers = []
+
+            for emp in all_employees:
+                if str(emp['_id']) not in current_team_ids:
+                    emp_skills = emp.get('Skills', [])
+                    provided_skills = [
+                        skill for skill in missing_skills
+                        if any(SkillMatcher.get_similarity(skill, emp_skill) > 70
+                               for emp_skill in emp_skills)
+                    ]
+
+                    if provided_skills:
+                        skill_providers.append({
+                            'employee_id': str(emp['_id']),
+                            'name': emp.get('Name', 'Unknown'),
+                            'provides_skills': provided_skills,
+                            'all_skills': emp_skills
+                        })
+
+            # Sort by number of missing skills provided
+            skill_providers.sort(key=lambda x: len(x['provides_skills']), reverse=True)
+
+            optimization_suggestions.append({
+                'type': 'add_skill_provider',
+                'reason': 'Fill critical skill gaps',
+                'suggestions': skill_providers[:3],
+                'impact': 'Could improve skill coverage by 20-30%'
+            })
+
+        # Check for experience imbalance
+        if current_analysis['experience_balance'] < 50:
+            exp_dist = current_analysis['experience_distribution']
+
+            if exp_dist.get('Junior', 0) > len(current_team) / 2:
+                optimization_suggestions.append({
+                    'type': 'add_senior_member',
+                    'reason': 'Team is too junior-heavy',
+                    'impact': 'Could improve velocity by 15-20% and reduce defects'
+                })
+
+            if not exp_dist.get('Lead') and len(current_team) > 3:
+                optimization_suggestions.append({
+                    'type': 'add_tech_lead',
+                    'reason': 'Team lacks technical leadership',
+                    'impact': 'Could improve code quality and team coordination'
+                })
+
+        # Check team size efficiency
+        if len(current_team) > 8:
+            optimization_suggestions.append({
+                'type': 'reduce_team_size',
+                'reason': 'Team is too large, causing coordination overhead',
+                'suggestion': 'Consider splitting into two smaller teams',
+                'impact': 'Could improve efficiency by 10-15%'
+            })
+
+        return jsonify({
+            'success': True,
+            'current_team_analysis': current_analysis,
+            'current_predictions': current_predictions,
+            'optimization_suggestions': optimization_suggestions
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f"Error optimizing team: {str(e)}"
+        }), 500

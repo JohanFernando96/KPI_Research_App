@@ -123,6 +123,38 @@ const DeveloperMatcher = ({
     }
   };
 
+  // Add the new function for finding complementary team members
+  const matchWithTeamContext = async () => {
+    if (!project) return;
+
+    setIsMatching(true);
+    setError("");
+
+    try {
+      const response = await employeeService.matchWithTeamContext({
+        project_criteria: {
+          languages: project.project_languages,
+          field: project.project_type,
+          people_count: project.project_team_size - selectedEmployees.length,
+          project_type: project.project_type,
+        },
+        existing_team: selectedEmployees,
+        project_id: projectId
+      });
+
+      if (response.success) {
+        setMatchedEmployees(response.matched_employees || []);
+      } else {
+        setError(response.message || "Failed to find complementary team members");
+      }
+    } catch (error) {
+      console.error("Error matching with team context:", error);
+      setError("An error occurred while finding complementary team members");
+    } finally {
+      setIsMatching(false);
+    }
+  };
+
   const toggleEmployeeSelection = (employeeId) => {
     setSelectedEmployees((prev) => {
       if (prev.includes(employeeId)) {
@@ -417,55 +449,84 @@ const DeveloperMatcher = ({
                 ? "Matched Developers"
                 : "Find Suitable Developers"}
             </h3>
-            <Button
-              onClick={() => matchEmployees(roleCriteria)}
-              disabled={isMatching || !project}
-              icon={
-                isMatching ? (
-                  <svg
-                    className="w-4 h-4 mr-2 -ml-1 text-white animate-spin"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
+            <div className="flex space-x-2">
+              <Button
+                onClick={() => matchEmployees(roleCriteria)}
+                disabled={isMatching || !project}
+                icon={
+                  isMatching ? (
+                    <svg
+                      className="w-4 h-4 mr-2 -ml-1 text-white animate-spin"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                  ) : (
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
                       stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                ) : (
-                  <svg
-                    className="w-4 h-4 mr-1"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
-                )
-              }
-            >
-              {isMatching
-                ? "Matching..."
-                : matchedEmployees.length > 0
-                ? "Re-match Developers"
-                : "Find Best Matches"}
-            </Button>
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
+                    </svg>
+                  )
+                }
+              >
+                {isMatching
+                  ? "Matching..."
+                  : matchedEmployees.length > 0
+                  ? "Re-match Developers"
+                  : "Find Best Matches"}
+              </Button>
+
+              {/* Add the complementary team members button */}
+              {selectedEmployees.length > 0 && !roleCriteria && (
+                <Button
+                  variant="outline"
+                  onClick={matchWithTeamContext}
+                  disabled={isMatching}
+                  icon={
+                    <svg
+                      className="w-4 h-4 mr-1"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                      />
+                    </svg>
+                  }
+                >
+                  Find Complementary Members
+                </Button>
+              )}
+            </div>
           </div>
 
           {isMatching ? (

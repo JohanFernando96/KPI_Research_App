@@ -1,5 +1,4 @@
 from datetime import datetime
-
 from flask import Blueprint, request, jsonify
 from bson.objectid import ObjectId
 import json
@@ -7,9 +6,14 @@ import json
 from services.mongodb_service import mongodb_service
 from services.chart_service import chart_service
 from modules.kpi_generation.kpi_generator import KPIGenerator
+from modules.kpi_generation.team_kpi_generator import TeamKPIGenerator
+from modules.kpi_generation.individual_kpi_generator import IndividualKPIGenerator
 from modules.kpi_generation.chart_generator import ChartGenerator
 from modules.kpi_generation.kpi_adjuster import KPIAdjuster
+from modules.kpi_generation.kpi_predictor import KPIPredictor
+from modules.kpi_generation.kpi_learner import KPILearner
 from utils.error_handlers import ValidationError, NotFoundError
+from utils.json_utils import serialize_mongo
 
 kpi_blueprint = Blueprint('kpi', __name__)
 
@@ -17,7 +21,7 @@ kpi_blueprint = Blueprint('kpi', __name__)
 @kpi_blueprint.route('/generate', methods=['POST'])
 def generate_kpis():
     """
-    Endpoint for generating KPIs based on project details.
+    Enhanced endpoint for generating KPIs with optional team awareness.
     """
     try:
         data = request.json
@@ -25,24 +29,28 @@ def generate_kpis():
         if not data:
             raise ValidationError("No data provided")
 
-        # Generate KPIs
-        kpis = KPIGenerator.generate_kpis(data)
+        # Check if team members are provided
+        team_members = data.get('team_members', [])
 
-        # Generate Gantt chart data
-        gantt_data = KPIGenerator.generate_gantt_chart_data(data)
+        # Generate KPIs with team awareness
+        kpis = KPIGenerator.generate_kpis(data, team_members)
 
-        # Generate employee criteria
-        employee_criteria = KPIGenerator.generate_employee_criteria(data)
+        # Generate additional project data
+        team_analysis = None
+        if team_members:
+            team_analysis = KPIGenerator._analyze_team_composition(team_members, data)
 
-        # Generate sprint breakdown
-        sprint_breakdown = KPIGenerator.generate_sprint_breakdown(data)
+        gantt_data = KPIGenerator.generate_gantt_chart_data(data, team_analysis)
+        employee_criteria = KPIGenerator.generate_employee_criteria(data, team_members)
+        sprint_breakdown = KPIGenerator.generate_sprint_breakdown(data, team_analysis)
 
         # Prepare response
         response = {
             'kpis': kpis,
             'gantt_chart_data': gantt_data,
             'employee_criteria': employee_criteria,
-            'sprint_breakdown': sprint_breakdown
+            'sprint_breakdown': sprint_breakdown,
+            'team_analysis': team_analysis
         }
 
         return jsonify({
@@ -199,6 +207,171 @@ def get_project_kpis(project_id):
         }), 500
 
 
+@kpi_blueprint.route('/projects/<project_id>/kpis/generate-team-based', methods=['POST'])
+def generate_project_team_kpis(project_id):
+    """
+    Generate KPIs based on actual team composition and individual capabilities.
+    """
+    try:
+        data = request.json
+
+        # Convert string ID to ObjectId
+        object_id = ObjectId(project_id)
+
+        # Get project
+        project = mongodb_service.find_one('Projects', {'_id': object_id})
+        if not project:
+            raise NotFoundError(f"Project with ID {project_id} not found")
+
+        # Get team data
+        team_data = project.get('team', {})
+        role_assignments = team_data.get('role_assignments', [])
+
+        # Fetch team member details
+        team_members = []
+        employee_ids = team_data.get('employee_ids', [])
+
+        # Also get employees from role assignments
+        for assignment in role_assignments:
+            emp_id = assignment.get('employeeId')
+            if emp_id and emp_id not in employee_ids:
+                employee_ids.append(emp_id)
+
+        # Fetch all team members
+        if employee_ids:
+            for emp_id in employee_ids:
+                try:
+                    employee = mongodb_service.find_one('Resumes', {'_id': ObjectId(emp_id)})
+                    if employee:
+                        team_members.append(employee)
+                except:
+                    continue
+
+        # Prepare project details
+        project_details = {
+            'project_type': project.get('project_type'),
+            'project_timeline': project.get('project_timeline'),
+            'project_team_size': len(team_members) or project.get('project_team_size'),
+            'project_languages': project.get('project_languages'),
+            'project_sprints': project.get('project_sprints', 5)
+        }
+
+        # Generate comprehensive KPIs
+        comprehensive_kpis = KPIGenerator.generate_comprehensive_project_kpis(
+            project_details,
+            {
+                'members': team_members,
+                'role_assignments': role_assignments
+            }
+        )
+
+        # Generate predictions if team data available
+        predictions = None
+        if team_members:
+            team_analysis = KPIGenerator._analyze_team_composition(team_members, project_details)
+            predictions = KPIPredictor.predict_project_success(team_analysis, project_details)
+
+        # Apply historical learning if available
+        if comprehensive_kpis.get('project_level'):
+            comprehensive_kpis['project_level'] = KPILearner.apply_learned_patterns(
+                comprehensive_kpis['project_level'],
+                project_details
+            )
+
+        # Generate charts based on team capabilities
+        charts = {}
+        try:
+            team_kpis = comprehensive_kpis.get('project_level', {})
+
+            # Generate various charts
+            gantt_data = KPIGenerator.generate_gantt_chart_data(
+                project_details,
+                comprehensive_kpis.get('team_metrics')
+            )
+            charts['gantt_chart'] = ChartGenerator.generate_gantt_chart(gantt_data, project_id)
+
+            charts['burndown_chart'] = ChartGenerator.generate_burndown_chart(
+                int(project_details['project_timeline']),
+                int(project_details['project_sprints']),
+                project_id
+            )
+
+            charts['velocity_chart'] = ChartGenerator.generate_velocity_chart(
+                int(project_details['project_sprints']),
+                len(team_members),
+                project_id
+            )
+
+            charts['kpi_radar_chart'] = ChartGenerator.generate_kpi_radar_chart(
+                team_kpis,
+                project_id
+            )
+
+            charts['kpi_breakdown'] = ChartGenerator.generate_kpi_breakdown_chart(
+                team_kpis,
+                project_id
+            )
+
+            # Generate individual performance charts
+            if comprehensive_kpis.get('individual_level'):
+                charts['individual_charts'] = {}
+                for employee_id, individual_kpis in comprehensive_kpis['individual_level'].items():
+                    charts['individual_charts'][employee_id] = ChartGenerator.generate_kpi_radar_chart(
+                        individual_kpis,
+                        f"{project_id}_{employee_id}"
+                    )
+
+        except Exception as chart_error:
+            charts['error'] = f"Error generating charts: {str(chart_error)}"
+
+        # Save comprehensive KPIs
+        kpi_doc = {
+            'project_id': object_id,
+            'kpis': comprehensive_kpis,
+            'team_composition': {
+                'size': len(team_members),
+                'members': [str(m['_id']) for m in team_members],
+                'analysis': comprehensive_kpis.get('team_metrics')
+            },
+            'predictions': predictions,
+            'charts': charts,
+            'project_details': project_details,
+            'created_at': datetime.now(),
+            'generation_type': 'team_based'
+        }
+
+        kpi_id = mongodb_service.insert_one('ProjectKPIs', kpi_doc)
+
+        # Update project
+        mongodb_service.update_one(
+            'Projects',
+            {'_id': object_id},
+            {'$set': {
+                'kpi_id': kpi_id,
+                'has_team_kpis': True,
+                'kpi_generation_date': datetime.now()
+            }}
+        )
+
+        return jsonify({
+            'success': True,
+            'message': "Team-based KPIs generated successfully",
+            'kpi_id': str(kpi_id),
+            'data': {
+                'comprehensive_kpis': serialize_mongo(comprehensive_kpis),
+                'charts': charts,
+                'team_analysis': comprehensive_kpis.get('team_metrics'),
+                'predictions': predictions
+            }
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f"Error generating team-based KPIs: {str(e)}"
+        }), 500
+
+
 @kpi_blueprint.route('/projects/<project_id>/charts/<chart_type>', methods=['GET'])
 def get_project_chart(project_id, chart_type):
     """
@@ -307,7 +480,7 @@ def adjust_project_kpis(project_id):
 
 
 @kpi_blueprint.route('/projects/<project_id>/kpis/adjust-for-changes', methods=['POST'])
-def adjust_project_kpis_for_changes(project_id):
+def adjust_kpis_for_project_changes(project_id):
     """
     Endpoint for adjusting KPIs based on project changes.
     """
@@ -376,8 +549,128 @@ def adjust_project_kpis_for_changes(project_id):
         }), 500
 
 
-@kpi_blueprint.route('/projects/<project_id>/recommendations', methods=['GET'])
-def get_project_kpi_recommendations(project_id):
+@kpi_blueprint.route('/projects/<project_id>/employees/<employee_id>/individual-kpis', methods=['GET'])
+def get_employee_individual_kpis(project_id, employee_id):
+    """
+    Get individual KPIs for a specific employee in a project.
+    """
+    try:
+        # Get project KPIs
+        kpi_doc = mongodb_service.find_one(
+            'ProjectKPIs',
+            {'project_id': ObjectId(project_id)}
+        )
+
+        if not kpi_doc:
+            raise NotFoundError(f"KPIs for project {project_id} not found")
+
+        # Check if individual KPIs exist
+        individual_kpis = kpi_doc.get('kpis', {}).get('individual_level', {}).get(employee_id)
+
+        if not individual_kpis:
+            # Generate individual KPIs on demand
+            employee = mongodb_service.find_one('Resumes', {'_id': ObjectId(employee_id)})
+            if not employee:
+                raise NotFoundError(f"Employee {employee_id} not found")
+
+            # Get project
+            project = mongodb_service.find_one('Projects', {'_id': ObjectId(project_id)})
+
+            # Find employee's role in project
+            team_data = project.get('team', {})
+            role_assignment = next(
+                (a for a in team_data.get('role_assignments', [])
+                 if a.get('employeeId') == employee_id),
+                None
+            )
+
+            if role_assignment:
+                role_criteria = {
+                    'role': role_assignment.get('roleName', 'Team Member'),
+                    'skills': []  # Could be populated from role requirements
+                }
+
+                # Generate individual KPIs
+                project_kpis = kpi_doc.get('kpis', {}).get('project_level', {})
+                individual_kpis = IndividualKPIGenerator.generate_individual_kpis(
+                    project_kpis,
+                    role_criteria,
+                    employee
+                )
+
+                # Save to database
+                mongodb_service.update_one(
+                    'ProjectKPIs',
+                    {'_id': kpi_doc['_id']},
+                    {
+                        '$set': {
+                            f'kpis.individual_level.{employee_id}': individual_kpis
+                        }
+                    }
+                )
+
+        return jsonify({
+            'success': True,
+            'employee_id': employee_id,
+            'individual_kpis': serialize_mongo(individual_kpis) if individual_kpis else None
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f"Error retrieving individual KPIs: {str(e)}"
+        }), 500
+
+
+@kpi_blueprint.route('/projects/<project_id>/kpis/predict-success', methods=['GET'])
+def predict_success(project_id):
+    """
+    Predict project success based on team composition and KPIs.
+    """
+    try:
+        # Get project
+        project = mongodb_service.find_one('Projects', {'_id': ObjectId(project_id)})
+        if not project:
+            raise NotFoundError(f"Project {project_id} not found")
+
+        # Get team members
+        team_data = project.get('team', {})
+        employee_ids = team_data.get('employee_ids', [])
+
+        team_members = []
+        for emp_id in employee_ids:
+            employee = mongodb_service.find_one('Resumes', {'_id': ObjectId(emp_id)})
+            if employee:
+                team_members.append(employee)
+
+        # Prepare project details
+        project_details = {
+            'project_type': project.get('project_type'),
+            'project_timeline': project.get('project_timeline'),
+            'project_team_size': len(team_members),
+            'project_languages': project.get('project_languages'),
+            'project_sprints': project.get('project_sprints', 5)
+        }
+
+        # Analyze team and predict success
+        team_analysis = KPIGenerator._analyze_team_composition(team_members, project_details)
+        predictions = KPIPredictor.predict_project_success(team_analysis, project_details)
+
+        return jsonify({
+            'success': True,
+            'predictions': predictions,
+            'team_analysis': team_analysis
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f"Error predicting project success: {str(e)}"
+        }), 500
+
+
+@kpi_blueprint.route('/projects/<project_id>/kpis/recommendations', methods=['GET'])
+def get_project_recommendations(project_id):
     """
     Endpoint for retrieving KPI recommendations for a project.
     """
@@ -434,8 +727,9 @@ def get_project_kpi_recommendations(project_id):
             'message': f"Error retrieving project KPI recommendations: {str(e)}"
         }), 500
 
+
 @kpi_blueprint.route('/projects/<project_id>/employees/<employee_id>/progress', methods=['POST'])
-def update_employee_kpi_progress(project_id, employee_id):
+def update_employee_progress(project_id, employee_id):
     """
     Endpoint for updating employee-specific KPI progress.
     """
@@ -460,7 +754,8 @@ def update_employee_kpi_progress(project_id, employee_id):
             raise NotFoundError(f"Employee with ID {employee_id} not found")
 
         # Check if project team includes this employee
-        if not 'team' in project or 'employee_ids' not in project['team'] or employee_id not in project['team']['employee_ids']:
+        if not 'team' in project or 'employee_ids' not in project['team'] or employee_id not in project['team'][
+            'employee_ids']:
             raise ValidationError(f"Employee {employee_id} is not part of project {project_id}")
 
         # Get or create employee KPI progress collection entry
@@ -506,4 +801,175 @@ def update_employee_kpi_progress(project_id, employee_id):
         return jsonify({
             'success': False,
             'message': f"Error updating employee KPI progress: {str(e)}"
+        }), 500
+
+
+@kpi_blueprint.route('/learn-from-history', methods=['POST'])
+def learn_from_history():
+    """
+    Analyze completed projects to improve KPI generation.
+    """
+    try:
+        # Learn from historical data
+        patterns = KPILearner.learn_from_completed_projects()
+
+        if patterns:
+            return jsonify({
+                'success': True,
+                'message': "Successfully learned from completed projects",
+                'patterns': patterns
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': "No completed projects found to learn from"
+            }), 404
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f"Error learning from projects: {str(e)}"
+        }), 500
+
+
+# Add these endpoints to kpi_routes.py
+
+@kpi_blueprint.route('/projects/<project_id>/kpis/generate-team-based', methods=['POST'])
+def generate_team_based_kpis(project_id):
+    """
+    Endpoint for generating team-based KPIs considering team composition.
+    """
+    try:
+        data = request.json
+
+        if not data:
+            raise ValidationError("No data provided")
+
+        # Convert string ID to ObjectId
+        object_id = ObjectId(project_id)
+
+        # Check if project exists
+        project = mongodb_service.find_one('Projects', {'_id': object_id})
+
+        if not project:
+            raise NotFoundError(f"Project with ID {project_id} not found")
+
+        # Get team composition
+        team_data = project.get('team', {})
+        employee_ids = team_data.get('employee_ids', [])
+        role_assignments = team_data.get('role_assignments', [])
+
+        # Get project KPIs
+        kpi_doc = mongodb_service.find_one('ProjectKPIs', {'project_id': object_id})
+
+        if not kpi_doc:
+            raise NotFoundError(f"Project KPIs not found for project {project_id}")
+
+        # Get employee details for team-based analysis
+        team_members = []
+        if employee_ids:
+            employee_object_ids = [ObjectId(id) for id in employee_ids]
+            employees = mongodb_service.find_many('Resumes', {'_id': {'$in': employee_object_ids}})
+
+            # Convert ObjectIds to strings
+            for emp in employees:
+                emp['_id'] = str(emp['_id'])
+            team_members = employees
+
+        # Import team-based KPI generator
+        from modules.kpi_generation.team_based_kpi_generator import TeamBasedKPIGenerator
+
+        # Generate team-based KPIs
+        team_based_kpis = TeamBasedKPIGenerator.generate_team_based_kpis(
+            project_kpis=kpi_doc.get('kpis', {}),
+            team_members=team_members,
+            role_assignments=role_assignments,
+            project_details=project
+        )
+
+        # Store team-based KPIs
+        mongodb_service.update_one(
+            'ProjectKPIs',
+            {'_id': kpi_doc['_id']},
+            {'$set': {
+                'team_based_kpis': team_based_kpis,
+                'team_kpis_generated_at': datetime.now()
+            }}
+        )
+
+        return jsonify({
+            'success': True,
+            'team_based_kpis': team_based_kpis,
+            'message': 'Team-based KPIs generated successfully'
+        })
+
+    except Exception as e:
+        print(f"Error generating team-based KPIs: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f"Error generating team-based KPIs: {str(e)}"
+        }), 500
+
+
+@kpi_blueprint.route('/projects/<project_id>/kpis/predict-success', methods=['GET'])
+def predict_project_success(project_id):
+    """
+    Endpoint for predicting project success based on current KPIs and team.
+    """
+    try:
+        # Convert string ID to ObjectId
+        object_id = ObjectId(project_id)
+
+        # Check if project exists
+        project = mongodb_service.find_one('Projects', {'_id': object_id})
+
+        if not project:
+            raise NotFoundError(f"Project with ID {project_id} not found")
+
+        # Get KPI document
+        kpi_doc = mongodb_service.find_one('ProjectKPIs', {'project_id': object_id})
+
+        if not kpi_doc:
+            raise NotFoundError(f"KPIs not found for project {project_id}")
+
+        # Get team data
+        team_data = project.get('team', {})
+        employee_ids = team_data.get('employee_ids', [])
+
+        # Get employee details
+        team_members = []
+        if employee_ids:
+            employee_object_ids = [ObjectId(id) for id in employee_ids]
+            employees = mongodb_service.find_many('Resumes', {'_id': {'$in': employee_object_ids}})
+
+            for emp in employees:
+                emp['_id'] = str(emp['_id'])
+            team_members = employees
+
+        # Import success predictor
+        from modules.kpi_generation.project_success_predictor import ProjectSuccessPredictor
+
+        # Predict project success
+        prediction = ProjectSuccessPredictor.predict_success(
+            project_kpis=kpi_doc.get('kpis', {}),
+            team_members=team_members,
+            project_details={
+                'type': project.get('project_type'),
+                'timeline': project.get('project_timeline'),
+                'team_size': project.get('project_team_size'),
+                'sprints': project.get('project_sprints'),
+                'languages': project.get('project_languages')
+            }
+        )
+
+        return jsonify({
+            'success': True,
+            'prediction': prediction
+        })
+
+    except Exception as e:
+        print(f"Error predicting project success: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f"Error predicting project success: {str(e)}"
         }), 500

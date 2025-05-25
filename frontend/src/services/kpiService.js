@@ -1,3 +1,5 @@
+// frontend/src/services/kpiService.js
+
 import { api } from './api';
 
 // KPI service for handling KPI-related API calls
@@ -58,11 +60,11 @@ export const kpiService = {
     },
 
     /**
-         * Get a specific chart for a project
-         * @param {string} projectId - The ID of the project
-         * @param {string} chartType - The type of chart (gantt, burndown, etc.)
-         * @returns {Promise<Object>} - The API response
-         */
+     * Get a specific chart for a project
+     * @param {string} projectId - The ID of the project
+     * @param {string} chartType - The type of chart (gantt, burndown, etc.)
+     * @returns {Promise<Object>} - The API response
+     */
     getProjectChart: async (projectId, chartType) => {
         try {
             const response = await api.get(`/kpi/projects/${projectId}/charts/${chartType}`);
@@ -236,7 +238,7 @@ export const kpiService = {
         }
     },
 
-        /**
+    /**
      * Update individual KPI progress for an employee on a project
      * @param {string} projectId - The ID of the project
      * @param {string} employeeId - The ID of the employee
@@ -244,15 +246,164 @@ export const kpiService = {
      * @returns {Promise<Object>} - The API response
      */
     updateIndividualKPIProgress: async (projectId, employeeId, progressData) => {
-    try {
-        const response = await api.post(`/kpi/projects/${projectId}/employees/${employeeId}/progress`, progressData);
-        return response.data;
-    } catch (error) {
-        console.error('Error updating individual KPI progress:', error);
-        return {
-        success: false,
-        message: error.response?.data?.message || 'Failed to update KPI progress'
-        };
-    }
-    }
+        try {
+            const response = await api.post(`/kpi/projects/${projectId}/employees/${employeeId}/progress`, progressData);
+            return response.data;
+        } catch (error) {
+            console.error('Error updating individual KPI progress:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to update KPI progress'
+            };
+        }
+    },
+    
+    /**
+     * Generate team-based KPIs
+     * @param {string} projectId - The ID of the project
+     * @param {Object} data - Additional data for team-based generation
+     * @returns {Promise<Object>} - The API response
+     */
+    generateTeamBasedKPIs: async (projectId, data = {}) => {
+        try {
+            const response = await api.post(`/kpi/projects/${projectId}/kpis/generate-team-based`, data);
+            return response.data;
+        } catch (error) {
+            console.error('Error generating team-based KPIs:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to generate team-based KPIs'
+            };
+        }
+    },
+
+    /**
+     * Get individual KPIs for a specific team member
+     * @param {string} projectId - The ID of the project
+     * @param {string} employeeId - The ID of the employee
+     * @returns {Promise<Object>} - The API response
+     */
+    getIndividualKPIs: async (projectId, employeeId) => {
+        try {
+            const response = await api.get(`/kpi/projects/${projectId}/employees/${employeeId}/individual-kpis`);
+            return response.data;
+        } catch (error) {
+            console.error('Error getting individual KPIs:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to get individual KPIs'
+            };
+        }
+    },
+
+    /**
+     * Predict project success
+     * @param {string} projectId - The ID of the project
+     * @returns {Promise<Object>} - The API response
+     */
+    predictProjectSuccess: async (projectId) => {
+        try {
+            const response = await api.get(`/kpi/projects/${projectId}/kpis/predict-success`);
+            return response.data;
+        } catch (error) {
+            console.error('Error predicting project success:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to predict project success'
+            };
+        }
+    },
+
+    /**
+     * Get team-level KPIs for the entire team
+     * @param {string} projectId - The ID of the project
+     * @returns {Promise<Object>} - The API response
+     */
+    getTeamLevelKPIs: async (projectId) => {
+        try {
+            const response = await api.get(`/kpi/projects/${projectId}/kpis/team-level`);
+            return response.data;
+        } catch (error) {
+            console.error('Error getting team-level KPIs:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to get team-level KPIs'
+            };
+        }
+    },
+
+    /**
+     * Apply learning from completed projects to improve KPI accuracy
+     * @param {string} projectId - The ID of the project to apply learning to
+     * @param {string} referenceProjectId - The ID of the completed project to learn from
+     * @returns {Promise<Object>} - The API response
+     */
+    applyHistoricalLearning: async (projectId, referenceProjectId = null) => {
+        try {
+            const payload = referenceProjectId ? { reference_project_id: referenceProjectId } : {};
+            const response = await api.post(`/kpi/projects/${projectId}/kpis/apply-learning`, payload);
+            return response.data;
+        } catch (error) {
+            console.error('Error applying historical learning:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to apply historical learning'
+            };
+        }
+    },
+
+    /**
+     * Get KPI variance analysis comparing actual vs predicted
+     * @param {string} projectId - The ID of the project
+     * @returns {Promise<Object>} - The API response
+     */
+    getKPIVarianceAnalysis: async (projectId) => {
+        try {
+            const response = await api.get(`/kpi/projects/${projectId}/kpis/variance-analysis`);
+            return response.data;
+        } catch (error) {
+            console.error('Error getting KPI variance analysis:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to get variance analysis'
+            };
+        }
+    },
+
+    /**
+     * Generate what-if scenarios for KPIs based on team changes
+     * @param {string} projectId - The ID of the project
+     * @param {Object} scenarioData - The scenario data (e.g., proposed team changes)
+     * @returns {Promise<Object>} - The API response
+     */
+    generateWhatIfScenario: async (projectId, scenarioData) => {
+        try {
+            const response = await api.post(`/kpi/projects/${projectId}/kpis/what-if`, scenarioData);
+            return response.data;
+        } catch (error) {
+            console.error('Error generating what-if scenario:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to generate what-if scenario'
+            };
+        }
+    },
+
+    /**
+     * Get aggregated KPI insights across multiple projects
+     * @param {Array} projectIds - Array of project IDs to analyze
+     * @returns {Promise<Object>} - The API response
+     */
+    getAggregatedInsights: async (projectIds) => {
+        try {
+            const response = await api.post('/kpi/insights/aggregate', { project_ids: projectIds });
+            return response.data;
+        } catch (error) {
+            console.error('Error getting aggregated insights:', error);
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to get aggregated insights'
+            };
+        }
+    },
 };
