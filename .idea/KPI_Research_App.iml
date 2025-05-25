@@ -3,6 +3,8 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/uploads/cvs" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/uploads/temp" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.13 (KPI_Research_App)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

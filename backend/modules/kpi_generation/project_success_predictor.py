@@ -97,7 +97,7 @@ class ProjectSuccessPredictor:
         if not team_members:
             return 0.3
 
-        required_size = project_details.get('team_size', 5)
+        required_size = project_details.get('team_size', project_details.get('project_team_size', 5))
         actual_size = len(team_members)
 
         # Size match score
@@ -114,10 +114,11 @@ class ProjectSuccessPredictor:
 
         # Skills coverage score
         required_skills = []
-        if isinstance(project_details.get('languages'), list):
-            required_skills = project_details['languages']
-        elif isinstance(project_details.get('languages'), str):
-            required_skills = [s.strip() for s in project_details['languages'].split(',')]
+        languages = project_details.get('languages', project_details.get('project_languages'))
+        if isinstance(languages, list):
+            required_skills = languages
+        elif isinstance(languages, str):
+            required_skills = [s.strip() for s in languages.split(',')]
 
         team_skills = set()
         for member in team_members:

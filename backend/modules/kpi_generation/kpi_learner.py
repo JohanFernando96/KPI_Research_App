@@ -1,6 +1,7 @@
 from services.mongodb_service import mongodb_service
 import numpy as np
 from datetime import datetime, timedelta
+import json  # Add this missing import
 
 
 class KPILearner:
@@ -96,6 +97,26 @@ class KPILearner:
             }
 
         return None
+
+    @staticmethod
+    def _analyze_quality_patterns(projects):
+        """Analyze quality patterns from completed projects."""
+        # Placeholder implementation
+        return {
+            'average_defect_density': 1.5,
+            'test_coverage_average': 75,
+            'recommendation': 'Focus on improving test coverage'
+        }
+
+    @staticmethod
+    def _analyze_timeline_patterns(projects):
+        """Analyze timeline patterns from completed projects."""
+        # Placeholder implementation
+        return {
+            'on_time_delivery_rate': 0.7,
+            'average_delay_percentage': 15,
+            'recommendation': 'Add buffer time to project estimates'
+        }
 
     @staticmethod
     def apply_learned_patterns(base_kpis, project_details):

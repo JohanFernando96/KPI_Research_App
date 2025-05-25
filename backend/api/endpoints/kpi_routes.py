@@ -2,6 +2,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify
 from bson.objectid import ObjectId
 import json
+import traceback
 
 from services.mongodb_service import mongodb_service
 from services.chart_service import chart_service
@@ -14,6 +15,7 @@ from modules.kpi_generation.kpi_predictor import KPIPredictor
 from modules.kpi_generation.kpi_learner import KPILearner
 from utils.error_handlers import ValidationError, NotFoundError
 from utils.json_utils import serialize_mongo
+from modules.kpi_generation.project_success_predictor import ProjectSuccessPredictor
 
 kpi_blueprint = Blueprint('kpi', __name__)
 
@@ -639,15 +641,18 @@ def predict_success(project_id):
 
         team_members = []
         for emp_id in employee_ids:
-            employee = mongodb_service.find_one('Resumes', {'_id': ObjectId(emp_id)})
-            if employee:
-                team_members.append(employee)
+            try:
+                employee = mongodb_service.find_one('Resumes', {'_id': ObjectId(emp_id)})
+                if employee:
+                    team_members.append(employee)
+            except:
+                continue
 
         # Prepare project details
         project_details = {
             'project_type': project.get('project_type'),
             'project_timeline': project.get('project_timeline'),
-            'project_team_size': len(team_members),
+            'project_team_size': len(team_members) or project.get('project_team_size'),
             'project_languages': project.get('project_languages'),
             'project_sprints': project.get('project_sprints', 5)
         }
@@ -663,6 +668,8 @@ def predict_success(project_id):
         })
 
     except Exception as e:
+        print(f"Error predicting project success: {str(e)}")
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'message': f"Error predicting project success: {str(e)}"
@@ -829,147 +836,4 @@ def learn_from_history():
         return jsonify({
             'success': False,
             'message': f"Error learning from projects: {str(e)}"
-        }), 500
-
-
-# Add these endpoints to kpi_routes.py
-
-@kpi_blueprint.route('/projects/<project_id>/kpis/generate-team-based', methods=['POST'])
-def generate_team_based_kpis(project_id):
-    """
-    Endpoint for generating team-based KPIs considering team composition.
-    """
-    try:
-        data = request.json
-
-        if not data:
-            raise ValidationError("No data provided")
-
-        # Convert string ID to ObjectId
-        object_id = ObjectId(project_id)
-
-        # Check if project exists
-        project = mongodb_service.find_one('Projects', {'_id': object_id})
-
-        if not project:
-            raise NotFoundError(f"Project with ID {project_id} not found")
-
-        # Get team composition
-        team_data = project.get('team', {})
-        employee_ids = team_data.get('employee_ids', [])
-        role_assignments = team_data.get('role_assignments', [])
-
-        # Get project KPIs
-        kpi_doc = mongodb_service.find_one('ProjectKPIs', {'project_id': object_id})
-
-        if not kpi_doc:
-            raise NotFoundError(f"Project KPIs not found for project {project_id}")
-
-        # Get employee details for team-based analysis
-        team_members = []
-        if employee_ids:
-            employee_object_ids = [ObjectId(id) for id in employee_ids]
-            employees = mongodb_service.find_many('Resumes', {'_id': {'$in': employee_object_ids}})
-
-            # Convert ObjectIds to strings
-            for emp in employees:
-                emp['_id'] = str(emp['_id'])
-            team_members = employees
-
-        # Import team-based KPI generator
-        from modules.kpi_generation.team_based_kpi_generator import TeamBasedKPIGenerator
-
-        # Generate team-based KPIs
-        team_based_kpis = TeamBasedKPIGenerator.generate_team_based_kpis(
-            project_kpis=kpi_doc.get('kpis', {}),
-            team_members=team_members,
-            role_assignments=role_assignments,
-            project_details=project
-        )
-
-        # Store team-based KPIs
-        mongodb_service.update_one(
-            'ProjectKPIs',
-            {'_id': kpi_doc['_id']},
-            {'$set': {
-                'team_based_kpis': team_based_kpis,
-                'team_kpis_generated_at': datetime.now()
-            }}
-        )
-
-        return jsonify({
-            'success': True,
-            'team_based_kpis': team_based_kpis,
-            'message': 'Team-based KPIs generated successfully'
-        })
-
-    except Exception as e:
-        print(f"Error generating team-based KPIs: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f"Error generating team-based KPIs: {str(e)}"
-        }), 500
-
-
-@kpi_blueprint.route('/projects/<project_id>/kpis/predict-success', methods=['GET'])
-def predict_project_success(project_id):
-    """
-    Endpoint for predicting project success based on current KPIs and team.
-    """
-    try:
-        # Convert string ID to ObjectId
-        object_id = ObjectId(project_id)
-
-        # Check if project exists
-        project = mongodb_service.find_one('Projects', {'_id': object_id})
-
-        if not project:
-            raise NotFoundError(f"Project with ID {project_id} not found")
-
-        # Get KPI document
-        kpi_doc = mongodb_service.find_one('ProjectKPIs', {'project_id': object_id})
-
-        if not kpi_doc:
-            raise NotFoundError(f"KPIs not found for project {project_id}")
-
-        # Get team data
-        team_data = project.get('team', {})
-        employee_ids = team_data.get('employee_ids', [])
-
-        # Get employee details
-        team_members = []
-        if employee_ids:
-            employee_object_ids = [ObjectId(id) for id in employee_ids]
-            employees = mongodb_service.find_many('Resumes', {'_id': {'$in': employee_object_ids}})
-
-            for emp in employees:
-                emp['_id'] = str(emp['_id'])
-            team_members = employees
-
-        # Import success predictor
-        from modules.kpi_generation.project_success_predictor import ProjectSuccessPredictor
-
-        # Predict project success
-        prediction = ProjectSuccessPredictor.predict_success(
-            project_kpis=kpi_doc.get('kpis', {}),
-            team_members=team_members,
-            project_details={
-                'type': project.get('project_type'),
-                'timeline': project.get('project_timeline'),
-                'team_size': project.get('project_team_size'),
-                'sprints': project.get('project_sprints'),
-                'languages': project.get('project_languages')
-            }
-        )
-
-        return jsonify({
-            'success': True,
-            'prediction': prediction
-        })
-
-    except Exception as e:
-        print(f"Error predicting project success: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f"Error predicting project success: {str(e)}"
         }), 500

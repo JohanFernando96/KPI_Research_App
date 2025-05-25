@@ -1,7 +1,6 @@
-import json
 from bson import ObjectId
+import json
 from datetime import datetime
-
 
 class MongoJSONEncoder(json.JSONEncoder):
     """JSON encoder that can handle MongoDB ObjectId and datetime objects."""

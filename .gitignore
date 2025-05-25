@@ -1,6 +1,7 @@
 backend/.env
-backend/.env
-backend/.env
 /backend/__pycache__
 /backend/api/endpoints/__pycache__
-backend/.env
+/backend/uploads
+/backend/modules/kpi_generation/__pycache__
+/backend/services/__pycache__
+/backend/utils/__pycache__
