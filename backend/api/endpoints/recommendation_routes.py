@@ -146,7 +146,10 @@ def recommend_employee_training(employee_id):
         data = request.json
 
         if not data:
-            raise ValidationError("No data provided")
+            return jsonify({
+                'success': False,
+                'message': "No data provided"
+            }), 400
 
         # Convert string ID to ObjectId
         object_id = ObjectId(employee_id)
@@ -155,7 +158,10 @@ def recommend_employee_training(employee_id):
         employee = mongodb_service.find_one('Resumes', {'_id': object_id})
 
         if not employee:
-            raise NotFoundError(f"Employee with ID {employee_id} not found")
+            return jsonify({
+                'success': False,
+                'message': f"Employee with ID {employee_id} not found"
+            }), 404
 
         # Get employee skills
         employee_skills = employee.get('Skills', [])
@@ -168,7 +174,10 @@ def recommend_employee_training(employee_id):
             skill_gaps = data.get('skill_gaps', [])
 
             if not skill_gaps:
-                raise ValidationError("Skill gaps are required for skill-based recommendations")
+                return jsonify({
+                    'success': False,
+                    'message': "Skill gaps are required for skill-based recommendations"
+                }), 400
 
             # Get recommendations for skill gaps
             recommendations = TrainingRecommender.recommend_for_skill_gaps(skill_gaps)
@@ -178,7 +187,10 @@ def recommend_employee_training(employee_id):
             project_skills = data.get('project_skills', [])
 
             if not project_skills:
-                raise ValidationError("Project skills are required for project-based recommendations")
+                return jsonify({
+                    'success': False,
+                    'message': "Project skills are required for project-based recommendations"
+                }), 400
 
             # Analyze project skill gap
             project_analysis = SkillGapAnalyzer.analyze_project_skill_gap(employee_skills, project_skills)
@@ -193,12 +205,14 @@ def recommend_employee_training(employee_id):
             if not current_role:
                 # If current role not provided, determine it from experience
                 experience_items = employee.get('Experience', [])
-                experience_years = ExperienceAnalyzer.get_years_of_experience(experience_items)
-                current_role = RoleHierarchy.find_matching_role(employee_skills, experience_years)
-            else:
-                # Calculate years of experience
-                experience_items = employee.get('Experience', [])
-                experience_years = ExperienceAnalyzer.get_years_of_experience(experience_items)
+                if experience_items:
+                    current_role = experience_items[0].get('Role', 'Unknown')
+                else:
+                    current_role = 'Unknown'
+
+            # Calculate years of experience
+            experience_items = employee.get('Experience', [])
+            experience_years = ExperienceAnalyzer.get_years_of_experience(experience_items)
 
             # Analyze career progression
             progression_analysis = SkillGapAnalyzer.analyze_career_progression(
@@ -211,7 +225,10 @@ def recommend_employee_training(employee_id):
             recommendations = TrainingRecommender.recommend_for_career_progression(progression_analysis)
 
         else:
-            raise ValidationError(f"Invalid recommendation type: {recommendation_type}")
+            return jsonify({
+                'success': False,
+                'message': f"Invalid recommendation type: {recommendation_type}"
+            }), 400
 
         return jsonify({
             'success': True,
@@ -221,6 +238,8 @@ def recommend_employee_training(employee_id):
         })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'message': f"Error recommending training: {str(e)}"
@@ -478,4 +497,47 @@ def get_job_role(role_name):
         return jsonify({
             'success': False,
             'message': f"Error retrieving job role: {str(e)}"
+        }), 500
+
+@recommendation_blueprint.route('/employees/<employee_id>/development-plans', methods=['GET'])
+def get_employee_development_plans(employee_id):
+    """
+    Get all development plans for an employee.
+    """
+    try:
+        # Convert string ID to ObjectId
+        object_id = ObjectId(employee_id)
+
+        # Find all development plans for this employee
+        development_plans = mongodb_service.find_many(
+            'DevelopmentPlans',
+            {'employee_id': employee_id},
+            sort=[('created_at', -1)]  # Sort by newest first
+        )
+
+        # Convert ObjectIds and dates to strings
+        for plan in development_plans:
+            plan['_id'] = str(plan['_id'])
+            plan['id'] = str(plan['_id'])  # Add id field for frontend
+
+            # Convert datetime objects
+            for key in ['start_date', 'end_date', 'created_at']:
+                if key in plan and isinstance(plan[key], datetime):
+                    plan[key] = plan[key].isoformat()
+
+            # Convert dates in skills
+            for skill in plan.get('skills', []):
+                for key in ['start_date', 'target_date']:
+                    if key in skill and isinstance(skill[key], datetime):
+                        skill[key] = skill[key].isoformat()
+
+        return jsonify({
+            'success': True,
+            'plans': development_plans
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f"Error retrieving development plans: {str(e)}"
         }), 500

@@ -28,6 +28,7 @@ const SkillDevelopmentPage = () => {
   const [selectedResources, setSelectedResources] = useState({});
   const [isCreatingPlan, setIsCreatingPlan] = useState(false);
   const [createPlanError, setCreatePlanError] = useState("");
+  const [hasLoadedPlans, setHasLoadedPlans] = useState(false);
 
   // Fetch employee data
   useEffect(() => {
@@ -45,7 +46,11 @@ const SkillDevelopmentPage = () => {
 
       if (response.success) {
         setEmployee(response.data);
-        fetchDevelopmentPlans();
+        // Only fetch development plans once
+        if (!hasLoadedPlans) {
+          fetchDevelopmentPlans();
+          setHasLoadedPlans(true);
+        }
       } else {
         setError(response.message || "Failed to retrieve employee data");
       }
@@ -71,9 +76,9 @@ const SkillDevelopmentPage = () => {
           const sortedPlans = [...response.plans].sort(
             (a, b) => new Date(b.created_at) - new Date(a.created_at)
           );
-          setActivePlanId(sortedPlans[0].id);
+          setActivePlanId(sortedPlans[0].id || sortedPlans[0]._id);
 
-          // If on analysis tab but plans exist, switch to tracker tab
+          // Only switch to tracker tab if we're on analysis tab and haven't done any analysis yet
           if (activeTab === "analysis" && !skillGapAnalysis) {
             setActiveTab("tracker");
           }
@@ -140,6 +145,16 @@ const SkillDevelopmentPage = () => {
     }
   };
 
+  // Reset analysis when switching tabs
+  const handleTabChange = (newTab) => {
+    setActiveTab(newTab);
+    
+    // Reset recommendations when switching away from resources tab
+    if (newTab !== "resources") {
+      setRecommendations(null);
+    }
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case "analysis":
@@ -182,7 +197,7 @@ const SkillDevelopmentPage = () => {
                   className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 >
                   {developmentPlans.map((plan) => (
-                    <option key={plan.id} value={plan.id}>
+                    <option key={plan.id || plan._id} value={plan.id || plan._id}>
                       {plan.title ||
                         `Plan created on ${new Date(
                           plan.created_at
@@ -216,9 +231,9 @@ const SkillDevelopmentPage = () => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setActiveTab("resources")}
+                onClick={() => setActiveTab("analysis")}
               >
-                Browse Training Resources
+                Go to Skill Analysis
               </Button>
             </div>
           </Card>
@@ -237,6 +252,39 @@ const SkillDevelopmentPage = () => {
       month: "short",
       day: "numeric",
     });
+  };
+
+  const renderSkillGapsPreview = () => {
+    if (!selectedSkillGaps || selectedSkillGaps.length === 0) return null;
+
+    return (
+      <div className="space-y-3">
+        {selectedSkillGaps.map((skill, idx) => {
+          const skillName = typeof skill === 'string' ? skill : skill.name || skill;
+          const resources = selectedResources[skillName] || [];
+
+          return (
+            <div key={idx} className="pt-3 border-t">
+              <h4 className="font-medium text-gray-800">{skillName}</h4>
+
+              {resources.length > 0 ? (
+                <ul className="mt-2 list-disc list-inside">
+                  {resources.map((resource, resIdx) => (
+                    <li key={resIdx} className="text-sm text-gray-600">
+                      {resource.name} ({resource.type || 'Resource'})
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-sm text-gray-500">
+                  No resources selected for this skill
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -420,7 +468,7 @@ const SkillDevelopmentPage = () => {
                       ? "text-blue-600 border-b-2 border-blue-600"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
-                  onClick={() => setActiveTab("analysis")}
+                  onClick={() => handleTabChange("analysis")}
                 >
                   Skill Gap Analysis
                 </button>
@@ -430,7 +478,8 @@ const SkillDevelopmentPage = () => {
                       ? "text-blue-600 border-b-2 border-blue-600"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
-                  onClick={() => setActiveTab("resources")}
+                  onClick={() => handleTabChange("resources")}
+                  disabled={!skillGapAnalysis}
                 >
                   Training Resources
                 </button>
@@ -440,7 +489,7 @@ const SkillDevelopmentPage = () => {
                       ? "text-blue-600 border-b-2 border-blue-600"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
-                  onClick={() => setActiveTab("tracker")}
+                  onClick={() => handleTabChange("tracker")}
                 >
                   Development Tracker
                 </button>
@@ -483,7 +532,7 @@ const SkillDevelopmentPage = () => {
             <Button
               variant="primary"
               onClick={handleCreateDevelopmentPlan}
-              disabled={isCreatingPlan}
+              disabled={isCreatingPlan || selectedSkillGaps.length === 0}
               icon={
                 isCreatingPlan ? (
                   <svg
@@ -521,27 +570,7 @@ const SkillDevelopmentPage = () => {
             resources:
           </p>
 
-          <div className="space-y-3">
-            {selectedSkillGaps.map((skill, idx) => (
-              <div key={idx} className="pt-3 border-t">
-                <h4 className="font-medium text-gray-800">{skill.name}</h4>
-
-                {selectedResources[skill.name]?.length > 0 ? (
-                  <ul className="mt-2 list-disc list-inside">
-                    {selectedResources[skill.name].map((resource, resIdx) => (
-                      <li key={resIdx} className="text-sm text-gray-600">
-                        {resource.name} ({resource.type})
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-1 text-sm text-gray-500">
-                    No resources selected for this skill
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
+          {renderSkillGapsPreview()}
 
           <div className="mt-4">
             <p className="text-sm text-gray-600">

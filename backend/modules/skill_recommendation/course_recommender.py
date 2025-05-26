@@ -61,7 +61,7 @@ class CourseRecommender:
             5. Key topics covered
             6. Why it's recommended
 
-            Return as JSON array with this structure:
+            Return ONLY a JSON array with this structure, no additional text:
             [
                 {{
                     "type": "Course/Tutorial/Documentation",
@@ -78,55 +78,50 @@ class CourseRecommender:
             ]
 
             Focus on current, high-quality resources from 2023-2025.
+            Return ONLY the JSON array, no explanations or additional text.
             """
 
             response = openai_service.generate_completion(prompt, temperature=0.3)
 
-            # Parse response
-            if response.startswith('```json'):
-                response = response[7:]
-            if response.endswith('```'):
-                response = response[:-3]
+            # Clean response more thoroughly
+            response = response.strip()
+
+            # Remove markdown code blocks
+            if '```json' in response:
+                response = response.split('```json')[1].split('```')[0]
+            elif '```' in response:
+                response = response.split('```')[1].split('```')[0]
+
+            # Find the JSON array in the response
+            import re
+            json_match = re.search(r'\[[\s\S]*\]', response)
+            if json_match:
+                response = json_match.group()
 
             courses = json.loads(response.strip())
+
+            # Ensure it's a list
+            if not isinstance(courses, list):
+                courses = []
 
             # Enhance with specific URLs where possible
             for course in courses:
                 course['url'] = CourseRecommender._generate_course_url(
-                    course['provider'],
-                    course['name'],
+                    course.get('provider', ''),
+                    course.get('name', ''),
                     skill_name
                 )
                 course['last_updated'] = datetime.now().isoformat()
 
             return courses
 
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error in _fetch_real_courses: {e}")
+            print(f"Response was: {response[:200]}...")  # Log first 200 chars
+            return []
         except Exception as e:
             print(f"Error fetching real courses: {e}")
             return []
-
-    @staticmethod
-    def _generate_course_url(provider, course_name, skill):
-        """Generate likely URLs for courses"""
-        provider_lower = provider.lower()
-
-        # URL patterns for different platforms
-        if 'coursera' in provider_lower:
-            search_term = skill.lower().replace(' ', '-')
-            return f"https://www.coursera.org/search?query={search_term}"
-        elif 'udemy' in provider_lower:
-            search_term = skill.lower().replace(' ', '-')
-            return f"https://www.udemy.com/courses/search/?q={search_term}"
-        elif 'edx' in provider_lower:
-            search_term = skill.lower().replace(' ', '+')
-            return f"https://www.edx.org/search?q={search_term}"
-        elif 'pluralsight' in provider_lower:
-            return f"https://www.pluralsight.com/search?q={skill}"
-        elif 'linkedin' in provider_lower:
-            return f"https://www.linkedin.com/learning/search?keywords={skill}"
-        else:
-            # Generic search URL
-            return f"https://www.google.com/search?q={skill}+{provider}+course"
 
     @staticmethod
     def get_learning_path(current_role, target_role, skill_gaps):
@@ -152,20 +147,52 @@ class CourseRecommender:
         - Practical projects
         - Milestones to achieve
 
-        Return as a structured JSON learning path.
+        Return ONLY a structured JSON object with the learning path.
+        The JSON should have a "phases" array containing phase objects.
+        Return ONLY the JSON, no explanations or additional text.
         """
 
         try:
             response = openai_service.generate_completion(prompt, temperature=0.4)
 
-            if response.startswith('```json'):
-                response = response[7:]
-            if response.endswith('```'):
-                response = response[:-3]
+            # Clean response
+            response = response.strip()
+
+            # Remove markdown code blocks
+            if '```json' in response:
+                response = response.split('```json')[1].split('```')[0]
+            elif '```' in response:
+                response = response.split('```')[1].split('```')[0]
+
+            # Find JSON object in response
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                response = json_match.group()
 
             learning_path = json.loads(response.strip())
             return learning_path
 
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error in get_learning_path: {e}")
+            print(f"Response was: {response[:200]}...")  # Log first 200 chars
+            # Return basic structure
+            return {
+                'phases': [
+                    {
+                        'name': 'Foundation',
+                        'duration': '1-2 months',
+                        'skills': skill_gaps[:3] if skill_gaps else [],
+                        'resources': []
+                    },
+                    {
+                        'name': 'Core Skills',
+                        'duration': '2-3 months',
+                        'skills': skill_gaps[3:6] if len(skill_gaps) > 3 else [],
+                        'resources': []
+                    }
+                ]
+            }
         except Exception as e:
             print(f"Error creating learning path: {e}")
             # Return basic structure
@@ -185,3 +212,27 @@ class CourseRecommender:
                     }
                 ]
             }
+
+    @staticmethod
+    def _generate_course_url(provider, course_name, skill):
+        """Generate likely URLs for courses"""
+        provider_lower = provider.lower()
+
+        # URL patterns for different platforms
+        if 'coursera' in provider_lower:
+            search_term = skill.lower().replace(' ', '-')
+            return f"https://www.coursera.org/search?query={search_term}"
+        elif 'udemy' in provider_lower:
+            search_term = skill.lower().replace(' ', '-')
+            return f"https://www.udemy.com/courses/search/?q={search_term}"
+        elif 'edx' in provider_lower:
+            search_term = skill.lower().replace(' ', '+')
+            return f"https://www.edx.org/search?q={search_term}"
+        elif 'pluralsight' in provider_lower:
+            return f"https://www.pluralsight.com/search?q={skill}"
+        elif 'linkedin' in provider_lower:
+            return f"https://www.linkedin.com/learning/search?keywords={skill}"
+        else:
+            # Generic search URL
+            return f"https://www.google.com/search?q={skill}+{provider}+course"
+
