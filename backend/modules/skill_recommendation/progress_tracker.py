@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import pytz  # Add this import
 
 
 class ProgressTracker:
@@ -24,12 +25,23 @@ class ProgressTracker:
 
         # Calculate end date (default to 3 months if not specified)
         if deadline:
-            end_date = deadline
+            # Ensure deadline is timezone-aware
+            if isinstance(deadline, datetime):
+                if deadline.tzinfo is None:
+                    # Make it timezone-aware (UTC)
+                    end_date = pytz.UTC.localize(deadline)
+                else:
+                    end_date = deadline
+            else:
+                # If it's a string, parse it
+                end_date = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+                if end_date.tzinfo is None:
+                    end_date = pytz.UTC.localize(end_date)
         else:
-            end_date = datetime.now() + timedelta(days=90)
+            end_date = datetime.now(pytz.UTC) + timedelta(days=90)
 
-        # Calculate milestone dates
-        start_date = datetime.now()
+        # Calculate milestone dates - ensure timezone-aware
+        start_date = datetime.now(pytz.UTC)
         duration = (end_date - start_date).days
 
         # Create plan

@@ -17,3 +17,4 @@ httpx==0.24.1
 pandas==2.1.0
 matplotlib==3.7.2
 seaborn==0.12.2
+pytz==2024.1

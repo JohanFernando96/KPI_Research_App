@@ -28,75 +28,139 @@ const SkillDevelopmentPage = () => {
   const [selectedResources, setSelectedResources] = useState({});
   const [isCreatingPlan, setIsCreatingPlan] = useState(false);
   const [createPlanError, setCreatePlanError] = useState("");
-  const [hasLoadedPlans, setHasLoadedPlans] = useState(false);
-  const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  
+  // New states for data loading management
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [initializationMessage, setInitializationMessage] = useState("Initializing...");
+  const [dataCache, setDataCache] = useState({
+    careerAnalysis: null,
+    roleAnalysis: null,
+    careerRecommendations: null,
+    resourceRecommendations: null,
+    lastFetched: null
+  });
 
-  // Fetch employee data
+  // Initialize all data
   useEffect(() => {
     if (employeeId) {
-      fetchEmployeeData();
+      initializeAllData();
     }
   }, [employeeId]);
 
-  const fetchEmployeeData = async () => {
-    setIsLoading(true);
+  const initializeAllData = async () => {
+    setIsInitializing(true);
     setError("");
 
     try {
-      const response = await employeeService.getEmployee(employeeId);
-
-      if (response.success) {
-        setEmployee(response.data);
-        // Only fetch development plans once
-        if (!hasLoadedPlans) {
-          fetchDevelopmentPlans();
-          setHasLoadedPlans(true);
-        }
-      } else {
-        setError(response.message || "Failed to retrieve employee data");
+      // Step 1: Load employee data
+      setInitializationMessage("Loading employee information...");
+      const employeeResponse = await employeeService.getEmployee(employeeId);
+      
+      if (!employeeResponse.success) {
+        throw new Error(employeeResponse.message || "Failed to load employee data");
       }
+      
+      setEmployee(employeeResponse.data);
+      const currentRole = employeeResponse.data?.Experience?.[0]?.Role || "";
+
+      // Step 2: Load skill gap analyses
+      setInitializationMessage("Analyzing skill gaps and career progression...");
+      const [careerAnalysis, roleAnalysis] = await Promise.all([
+        recommendationService.analyzeSkillGap(employeeId, "career", { current_role: currentRole }),
+        recommendationService.analyzeSkillGap(employeeId, "role", { 
+          role_name: currentRole || "Software Engineer",
+          current_role: currentRole 
+        })
+      ]);
+
+      // Step 3: Load recommendations
+      setInitializationMessage("Finding personalized training recommendations...");
+      const [careerRecs, skillRecs] = await Promise.all([
+        recommendationService.getRecommendations(employeeId, "career", { 
+          current_role: currentRole,
+          target_role: careerAnalysis.analysis?.next_role_details?.role_title || careerAnalysis.analysis?.next_role,
+          skill_gaps: extractAllSkillGaps(careerAnalysis.analysis)
+        }),
+        recommendationService.getRecommendations(employeeId, "skill_gaps", {
+          skill_gaps: extractAllSkillGaps(careerAnalysis.analysis),
+          current_role: currentRole
+        })
+      ]);
+
+      // Step 4: Load development plans
+      setInitializationMessage("Loading development plans...");
+      const plansResponse = await recommendationService.getEmployeeDevelopmentPlans(employeeId);
+
+      // Update cache
+      const cacheData = {
+        careerAnalysis: careerAnalysis.analysis,
+        roleAnalysis: roleAnalysis.analysis,
+        careerRecommendations: careerRecs.recommendations,
+        resourceRecommendations: skillRecs.recommendations,
+        lastFetched: new Date()
+      };
+
+      setDataCache(cacheData);
+      setSkillGapAnalysis(careerAnalysis.analysis);
+      setRecommendations(careerRecs.recommendations);
+
+      if (plansResponse.success && plansResponse.plans?.length > 0) {
+        setDevelopmentPlans(plansResponse.plans);
+        const sortedPlans = [...plansResponse.plans].sort(
+          (a, b) => new Date(b.created_at) - new Date(a.created_at)
+        );
+        setActivePlanId(sortedPlans[0].id || sortedPlans[0]._id);
+      }
+
     } catch (error) {
-      console.error("Error retrieving employee data:", error);
-      setError("An error occurred while retrieving employee data");
+      console.error("Error initializing data:", error);
+      setError(error.message || "Failed to load skill development data");
     } finally {
-      setIsLoading(false);
+      setIsInitializing(false);
     }
   };
 
-  const fetchDevelopmentPlans = async () => {
-    try {
-      const response = await recommendationService.getEmployeeDevelopmentPlans(
-        employeeId
-      );
-
-      if (response.success) {
-        setDevelopmentPlans(response.plans || []);
-
-        // If there's at least one plan, set the most recent one as active
-        if (response.plans && response.plans.length > 0) {
-          const sortedPlans = [...response.plans].sort(
-            (a, b) => new Date(b.created_at) - new Date(a.created_at)
-          );
-          setActivePlanId(sortedPlans[0].id || sortedPlans[0]._id);
-
-          // Only switch to tracker tab if we're on analysis tab and haven't done any analysis yet
-          if (activeTab === "analysis" && !skillGapAnalysis) {
-            setActiveTab("tracker");
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching development plans:", error);
+  const extractAllSkillGaps = (analysis) => {
+    if (!analysis) return [];
+    
+    const gaps = [];
+    
+    if (analysis.next_role_details?.skill_gaps) {
+      const skillGaps = analysis.next_role_details.skill_gaps;
+      gaps.push(...(skillGaps.technical || []));
+      gaps.push(...(skillGaps.soft || []));
+      gaps.push(...(skillGaps.domain || []));
+    } else if (analysis.skill_gaps) {
+      gaps.push(...(analysis.skill_gaps.technical || []));
+      gaps.push(...(analysis.skill_gaps.soft || []));
+      gaps.push(...(analysis.skill_gaps.domain || []));
     }
+    
+    return gaps;
+  };
+
+  const handleRefreshData = async () => {
+    await initializeAllData();
   };
 
   const handleAnalysisComplete = (analysis) => {
     setSkillGapAnalysis(analysis);
-    setHasAnalyzed(true);
+    // Update cache
+    setDataCache(prev => ({
+      ...prev,
+      careerAnalysis: analysis,
+      lastFetched: new Date()
+    }));
   };
 
   const handleRecommendationsLoaded = (recs) => {
     setRecommendations(recs);
+    // Update cache
+    setDataCache(prev => ({
+      ...prev,
+      careerRecommendations: recs,
+      lastFetched: new Date()
+    }));
   };
 
   const handleStartTraining = (skillGaps, resources) => {
@@ -128,10 +192,13 @@ const SkillDevelopmentPage = () => {
         setSelectedSkillGaps([]);
         setSelectedResources({});
 
-        // Refresh development plans and switch to tracker tab
-        await fetchDevelopmentPlans();
-        setActivePlanId(response.plan_id);
-        setActiveTab("tracker");
+        // Refresh development plans
+        const plansResponse = await recommendationService.getEmployeeDevelopmentPlans(employeeId);
+        if (plansResponse.success) {
+          setDevelopmentPlans(plansResponse.plans || []);
+          setActivePlanId(response.plan_id);
+          setActiveTab("tracker");
+        }
       } else {
         setCreatePlanError(
           response.message || "Failed to create development plan"
@@ -147,17 +214,6 @@ const SkillDevelopmentPage = () => {
     }
   };
 
-  // Reset analysis when switching tabs
-  const handleTabChange = (newTab) => {
-    setActiveTab(newTab);
-    
-    // Don't reset recommendations when switching tabs
-    // Only reset when going back to analysis
-    if (newTab === "analysis") {
-      setHasAnalyzed(false);
-    }
-  };
-
   const renderTabContent = () => {
     switch (activeTab) {
       case "analysis":
@@ -167,21 +223,25 @@ const SkillDevelopmentPage = () => {
               employeeId={employeeId}
               employeeData={employee}
               onAnalysisComplete={handleAnalysisComplete}
+              initialAnalysis={dataCache.careerAnalysis}
+              forceRefresh={false}
             />
             <RecommendationList
               employeeId={employeeId}
               employeeData={employee}
-              analysis={skillGapAnalysis}
-              onRecommendationsLoaded={setRecommendations}
+              analysis={skillGapAnalysis || dataCache.careerAnalysis}
+              onRecommendationsLoaded={handleRecommendationsLoaded}
+              initialRecommendations={dataCache.careerRecommendations}
+              forceRefresh={false}
             />
           </div>
         );
 
       case "resources":
-        return recommendations ? (
+        return recommendations || dataCache.careerRecommendations ? (
           <TrainingResourceList
             employeeId={employeeId}
-            recommendations={recommendations}
+            recommendations={recommendations || dataCache.careerRecommendations}
             onStartTraining={handleStartTraining}
           />
         ) : (
@@ -190,7 +250,7 @@ const SkillDevelopmentPage = () => {
               Please complete skill gap analysis first to see training resources.
             </div>
           </Card>
-      );
+        );
 
       case "tracker":
         return developmentPlans.length > 0 ? (
@@ -253,16 +313,6 @@ const SkillDevelopmentPage = () => {
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
   const renderSkillGapsPreview = () => {
     if (!selectedSkillGaps || selectedSkillGaps.length === 0) return null;
 
@@ -296,6 +346,33 @@ const SkillDevelopmentPage = () => {
     );
   };
 
+  // Show initialization loading screen
+  if (isInitializing) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
+          <div className="text-center">
+            <div className="mb-6">
+              <svg className="w-16 h-16 mx-auto text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Preparing Your Skill Development Journey
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              {initializationMessage}
+            </p>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container px-4 py-6 mx-auto">
       {/* Header */}
@@ -311,6 +388,28 @@ const SkillDevelopmentPage = () => {
           </div>
 
           <div className="flex mt-4 space-x-3 md:mt-0">
+            <Button
+              variant="outline"
+              onClick={handleRefreshData}
+              icon={
+                <svg
+                  className="w-4 h-4 mr-1"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+              }
+            >
+              Refresh Data
+            </Button>
             <Button
               variant="outline"
               onClick={() => navigate("/talent-pool")}
@@ -335,20 +434,23 @@ const SkillDevelopmentPage = () => {
             </Button>
           </div>
         </div>
+
+        {/* Last updated indicator */}
+        {dataCache.lastFetched && (
+          <p className="mt-2 text-xs text-gray-500">
+            Last updated: {new Date(dataCache.lastFetched).toLocaleString()}
+          </p>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="py-12">
-          <Loading text="Loading employee data..." />
-        </div>
-      ) : error ? (
+      {error ? (
         <div className="p-4 mb-6 text-red-700 rounded-md bg-red-50">
           <p>{error}</p>
           <Button
             variant="outline"
             size="sm"
             className="mt-2"
-            onClick={fetchEmployeeData}
+            onClick={initializeAllData}
           >
             Retry
           </Button>
@@ -477,7 +579,7 @@ const SkillDevelopmentPage = () => {
                       ? "text-blue-600 border-b-2 border-blue-600"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
-                  onClick={() => handleTabChange("analysis")}
+                  onClick={() => setActiveTab("analysis")}
                 >
                   Skill Gap Analysis
                 </button>
@@ -487,8 +589,7 @@ const SkillDevelopmentPage = () => {
                       ? "text-blue-600 border-b-2 border-blue-600"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
-                  onClick={() => handleTabChange("resources")}
-                  disabled={!skillGapAnalysis}
+                  onClick={() => setActiveTab("resources")}
                 >
                   Training Resources
                 </button>
@@ -498,7 +599,7 @@ const SkillDevelopmentPage = () => {
                       ? "text-blue-600 border-b-2 border-blue-600"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
-                  onClick={() => handleTabChange("tracker")}
+                  onClick={() => setActiveTab("tracker")}
                 >
                   Development Tracker
                 </button>

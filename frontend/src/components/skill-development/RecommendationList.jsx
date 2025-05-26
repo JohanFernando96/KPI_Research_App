@@ -4,7 +4,14 @@ import Button from "../common/Button";
 import Loading from "../common/Loading";
 import { recommendationService } from "../../services/recommendationService";
 
-const RecommendationList = ({ employeeId, employeeData, analysis, onRecommendationsLoaded }) => {
+const RecommendationList = ({ 
+  employeeId, 
+  employeeData, 
+  analysis, 
+  onRecommendationsLoaded,
+  initialRecommendations = null,
+  forceRefresh = false 
+}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [recommendations, setRecommendations] = useState(null);
@@ -12,8 +19,8 @@ const RecommendationList = ({ employeeId, employeeData, analysis, onRecommendati
   const [recommendationCache, setRecommendationCache] = useState({});
 
   const handleGetRecommendations = useCallback(async (type = recommendationType) => {
-    // Check cache first
-    if (recommendationCache[type]) {
+    // Check cache first if not forcing refresh
+    if (recommendationCache[type] && !forceRefresh) {
       setRecommendations(recommendationCache[type]);
       if (onRecommendationsLoaded) {
         onRecommendationsLoaded(recommendationCache[type]);
@@ -92,15 +99,41 @@ const RecommendationList = ({ employeeId, employeeData, analysis, onRecommendati
     } finally {
       setIsLoading(false);
     }
-  }, [employeeId, employeeData, analysis, recommendationType, recommendationCache, onRecommendationsLoaded]);
+  }, [employeeId, employeeData, analysis, recommendationType, recommendationCache, onRecommendationsLoaded, forceRefresh]);
 
+  // Initialize with initial recommendations if provided
   useEffect(() => {
-    if (employeeId && !recommendationCache[recommendationType]) {
+    if (initialRecommendations && !forceRefresh) {
+      setRecommendations(initialRecommendations);
+      setRecommendationCache(prev => ({
+        ...prev,
+        [recommendationType]: initialRecommendations
+      }));
+      if (onRecommendationsLoaded) {
+        onRecommendationsLoaded(initialRecommendations);
+      }
+    } else if (employeeId && !recommendationCache[recommendationType]) {
       handleGetRecommendations(recommendationType);
     } else if (recommendationCache[recommendationType]) {
       setRecommendations(recommendationCache[recommendationType]);
     }
-  }, [employeeId, recommendationType, analysis]); // Added analysis as dependency
+  }, [employeeId, recommendationType, analysis, initialRecommendations, forceRefresh]);
+
+  // Handle recommendation type change
+  const handleRecommendationTypeChange = (newType) => {
+    setRecommendationType(newType);
+    
+    // Check if we have cached data for this type
+    if (recommendationCache[newType] && !forceRefresh) {
+      setRecommendations(recommendationCache[newType]);
+      if (onRecommendationsLoaded) {
+        onRecommendationsLoaded(recommendationCache[newType]);
+      }
+    } else {
+      // Fetch new data for this type
+      handleGetRecommendations(newType);
+    }
+  };
 
   const renderResourceItem = (resource) => {
     const resourceUrl = resource.url || resource.estimated_url || '#';
@@ -380,7 +413,7 @@ const RecommendationList = ({ employeeId, employeeData, analysis, onRecommendati
           <Button
             variant={recommendationType === "career" ? "primary" : "outline"}
             size="sm"
-            onClick={() => setRecommendationType("career")}
+            onClick={() => handleRecommendationTypeChange("career")}
           >
             Career Path
           </Button>
@@ -389,7 +422,7 @@ const RecommendationList = ({ employeeId, employeeData, analysis, onRecommendati
               recommendationType === "skill_gaps" ? "primary" : "outline"
             }
             size="sm"
-            onClick={() => setRecommendationType("skill_gaps")}
+            onClick={() => handleRecommendationTypeChange("skill_gaps")}
           >
             Skill Gaps
           </Button>

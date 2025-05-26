@@ -5,7 +5,13 @@ import Button from "../common/Button";
 import Loading from "../common/Loading";
 import { recommendationService } from "../../services/recommendationService";
 
-const SkillGapAnalyzer = ({ employeeId, employeeData, onAnalysisComplete }) => {
+const SkillGapAnalyzer = ({ 
+  employeeId, 
+  employeeData, 
+  onAnalysisComplete,
+  initialAnalysis = null,
+  forceRefresh = false 
+}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [analysis, setAnalysis] = useState(null);
@@ -14,8 +20,8 @@ const SkillGapAnalyzer = ({ employeeId, employeeData, onAnalysisComplete }) => {
   const [analysisCache, setAnalysisCache] = useState({});
 
   const handleAnalyzeSkillGap = useCallback(async (type = analysisType) => {
-    // Check cache first
-    if (analysisCache[type]) {
+    // Check cache first if not forcing refresh
+    if (analysisCache[type] && !forceRefresh) {
       setAnalysis(analysisCache[type]);
       if (onAnalysisComplete) {
         onAnalysisComplete(analysisCache[type]);
@@ -65,15 +71,41 @@ const SkillGapAnalyzer = ({ employeeId, employeeData, onAnalysisComplete }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [employeeId, employeeData, analysisType, analysisCache, onAnalysisComplete]);
+  }, [employeeId, employeeData, analysisType, analysisCache, onAnalysisComplete, forceRefresh]);
 
+  // Initialize with initial analysis if provided
   useEffect(() => {
-    if (employeeId && !analysisCache[analysisType]) {
+    if (initialAnalysis && !forceRefresh) {
+      setAnalysis(initialAnalysis);
+      setAnalysisCache(prev => ({
+        ...prev,
+        [analysisType]: initialAnalysis
+      }));
+      if (onAnalysisComplete) {
+        onAnalysisComplete(initialAnalysis);
+      }
+    } else if (employeeId && !analysisCache[analysisType]) {
       handleAnalyzeSkillGap(analysisType);
     } else if (analysisCache[analysisType]) {
       setAnalysis(analysisCache[analysisType]);
     }
-  }, [employeeId, analysisType]);
+  }, [employeeId, analysisType, initialAnalysis, forceRefresh]);
+
+  // Handle analysis type change
+  const handleAnalysisTypeChange = (newType) => {
+    setAnalysisType(newType);
+    
+    // Check if we have cached data for this type
+    if (analysisCache[newType] && !forceRefresh) {
+      setAnalysis(analysisCache[newType]);
+      if (onAnalysisComplete) {
+        onAnalysisComplete(analysisCache[newType]);
+      }
+    } else {
+      // Fetch new data for this type
+      handleAnalyzeSkillGap(newType);
+    }
+  };
 
   const renderCareerAnalysis = () => {
     if (!analysis) return null;
@@ -407,14 +439,14 @@ const SkillGapAnalyzer = ({ employeeId, employeeData, onAnalysisComplete }) => {
           <Button
             variant={analysisType === "career" ? "primary" : "outline"}
             size="sm"
-            onClick={() => setAnalysisType("career")}
+            onClick={() => handleAnalysisTypeChange("career")}
           >
             Career Progression
           </Button>
           <Button
             variant={analysisType === "role" ? "primary" : "outline"}
             size="sm"
-            onClick={() => setAnalysisType("role")}
+            onClick={() => handleAnalysisTypeChange("role")}
           >
             Role Requirements
           </Button>
