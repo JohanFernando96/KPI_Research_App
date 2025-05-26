@@ -67,51 +67,81 @@ class OpenAIService:
     def parse_cv_data(extracted_text):
         """Parse CV text into structured format using OpenAI."""
         prompt = f"""
-        The following is the text extracted from a CV. Your task is to structure it into the required format below:
+        You are an expert CV parser. Extract and structure the following CV information into the required JSON format.
 
         Required Format:
         {{
-            "Name": "<Name>",
+            "Name": "<Full Name>",
             "Contact Information": {{
-                "Email": "<Email>",
-                "Phone": "<Phone>",
-                "Address": "<Address>",
-                "LinkedIn": "<LinkedIn>"
+                "Email": "<Email Address>",
+                "Phone": "<Phone Number>",
+                "Address": "<Physical Address>",
+                "LinkedIn": "<LinkedIn Profile URL>"
             }},
-            "Skills": ["Skill1", "Skill2", "..."],
+            "Skills": [
+                // List ALL technical skills, tools, technologies, languages, frameworks mentioned
+                // Include each skill as a separate item
+                // Preserve the original naming (e.g., "Node.js" not "NodeJS")
+            ],
             "Experience": [
                 {{
-                    "Role": "<Role>",
-                    "Company": "<Company>",
-                    "Duration": "<Start Date> - <End Date>",
+                    "Role": "<Job Title>",
+                    "Company": "<Company Name>",
+                    "Duration": "<Start Date> - <End Date or Present>",
                     "Responsibilities": [
-                        "Responsibility1",
-                        "Responsibility2",
-                        "..."
+                        // List each responsibility as a separate item
+                        // Include technologies used within responsibilities
                     ]
                 }}
             ],
             "Education": [
                 {{
-                    "Degree": "<Degree>",
-                    "Institution": "<Institution>",
+                    "Degree": "<Degree Name>",
+                    "Institution": "<University/College Name>",
                     "Duration": "<Start Date> - <End Date>",
-                    "Details": "<Details>"
+                    "Details": "<GPA, Honors, Relevant Coursework, etc.>"
                 }}
             ],
-            "Certifications and Courses": ["Course1", "Course2", "..."],
-            "Extra-Curricular Activities": ["Activity1", "Activity2", "..."]
+            "Certifications and Courses": [
+                // List FULL certification names, not abbreviations or single characters
+                // Each certification should be a complete, meaningful entry
+                // Examples: "AWS Certified Solutions Architect", "Google Cloud Professional Data Engineer"
+            ],
+            "Extra-Curricular Activities": [
+                // List activities, volunteer work, etc.
+            ]
         }}
 
-        Here is the extracted text:
+        CRITICAL INSTRUCTIONS:
+        1. Extract ALL skills mentioned anywhere in the CV (in skills section, experience, projects, etc.)
+        2. For Certifications: Extract complete certification names. Never return single characters or list markers.
+        3. Preserve exact skill names as written (don't normalize or change them)
+        4. If a section is not found, use an empty array [] or empty object {{}}
+        5. Ensure all dates are in a consistent format
+        6. Extract technologies mentioned in experience descriptions and add them to skills if not already listed
+
+        CV Text to Parse:
         {extracted_text}
 
-        If any fields are empty, represent them as an empty list `[]` or an empty object `{{}}`.
-        Ensure all JSON keys and formatting are consistent with the provided structure.
-        Return only the JSON object, no additional text.
+        Return only the JSON object, no additional text or markdown formatting.
         """
+
         try:
-            return OpenAIService.generate_completion(prompt, temperature=0)
+            response = OpenAIService.generate_completion(prompt, temperature=0, max_tokens=3000)
+
+            # Clean the response
+            cleaned_response = response.strip()
+
+            # Remove markdown code blocks if present
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.startswith('```'):
+                cleaned_response = cleaned_response[3:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+
+            return cleaned_response
+
         except Exception as e:
             print(f"Error parsing CV data: {e}")
             # Return a basic structure if OpenAI fails

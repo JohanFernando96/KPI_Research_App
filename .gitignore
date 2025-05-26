@@ -5,3 +5,4 @@ backend/.env
 /backend/modules/kpi_generation/__pycache__
 /backend/services/__pycache__
 /backend/utils/__pycache__
+backend/api/endpoints/__pycache__/employee_routes.cpython-313.pyc

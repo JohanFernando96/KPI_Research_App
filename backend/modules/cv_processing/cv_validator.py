@@ -1,3 +1,8 @@
+# backend/modules/cv_processing/cv_validator.py
+
+import re  # Add this import at the top
+
+
 class CVValidator:
     """Class for validating parsed CV data."""
 
@@ -118,6 +123,28 @@ class CVValidator:
             num_edu = len(cv_data['Education'])
             if num_edu == 0:
                 warnings.append("No education listed")
+
+        # Validate certifications
+        if 'Certifications and Courses' in cv_data and isinstance(cv_data['Certifications and Courses'], list):
+            certs = cv_data['Certifications and Courses']
+            invalid_certs = []
+
+            for cert in certs:
+                if not isinstance(cert, str):
+                    invalid_certs.append(cert)
+                    continue
+
+                # Check if certification is just a single character or list marker
+                cert_trimmed = cert.strip()
+                if len(cert_trimmed) <= 2 or cert_trimmed in ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']:
+                    invalid_certs.append(cert)
+                # Fix: Use re.match instead of string.match
+                elif re.match(r'^[0-9][\.\:\-\)]?$', cert_trimmed):  # Matches "1.", "2:", etc.
+                    invalid_certs.append(cert)
+
+            if invalid_certs:
+                warnings.append(
+                    f"Found {len(invalid_certs)} invalid certification entries (single characters or list markers)")
 
         # Overall content validation result (warnings don't invalidate the CV)
         is_valid = True
