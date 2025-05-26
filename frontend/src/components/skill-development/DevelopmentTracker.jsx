@@ -2,16 +2,19 @@ import React, { useState, useEffect } from "react";
 import Card from "../common/Card";
 import Button from "../common/Button";
 import Loading from "../common/Loading";
+import Modal from "../common/Modal";
 import { recommendationService } from "../../services/recommendationService";
 
 const DevelopmentTracker = ({ employeeId, planId }) => {
   const [developmentPlan, setDevelopmentPlan] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [skillProgress, setSkillProgress] = useState({});
-  const [completedResources, setCompletedResources] = useState({});
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState(false);
+  const [selectedSkill, setSelectedSkill] = useState(null);
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [progressValue, setProgressValue] = useState(0);
+  const [completedResources, setCompletedResources] = useState([]);
 
   useEffect(() => {
     if (employeeId && planId) {
@@ -31,20 +34,6 @@ const DevelopmentTracker = ({ employeeId, planId }) => {
 
       if (response.success) {
         setDevelopmentPlan(response.development_plan);
-
-        // Initialize progress tracking state
-        const initialProgress = {};
-        const initialCompletedResources = {};
-
-        response.development_plan.skills.forEach((skill) => {
-          initialProgress[skill.name] = skill.progress || 0;
-          initialCompletedResources[skill.name] = skill.resources
-            .filter((resource) => resource.completed)
-            .map((resource) => resource.name);
-        });
-
-        setSkillProgress(initialProgress);
-        setCompletedResources(initialCompletedResources);
       } else {
         setError(response.message || "Failed to fetch development plan");
       }
@@ -56,66 +45,31 @@ const DevelopmentTracker = ({ employeeId, planId }) => {
     }
   };
 
-  const handleProgressChange = (skillName, value) => {
-    setSkillProgress((prev) => ({
-      ...prev,
-      [skillName]: value,
-    }));
-  };
-
-  const handleResourceToggle = (skillName, resourceName) => {
-    setCompletedResources((prev) => {
-      const updated = { ...prev };
-
-      if (!updated[skillName]) {
-        updated[skillName] = [resourceName];
-      } else if (updated[skillName].includes(resourceName)) {
-        updated[skillName] = updated[skillName].filter(
-          (name) => name !== resourceName
-        );
-      } else {
-        updated[skillName] = [...updated[skillName], resourceName];
-      }
-
-      return updated;
-    });
-  };
-
-  const handleUpdateProgress = async (skillName) => {
-    if (!skillProgress[skillName]) return;
+  const handleUpdateProgress = async () => {
+    if (!selectedSkill) return;
 
     setIsUpdating(true);
     setUpdateSuccess(false);
 
     try {
-      const progress = parseFloat(skillProgress[skillName]);
-      const resources = completedResources[skillName] || [];
-
       const response = await recommendationService.trackProgress(
         employeeId,
         planId,
-        skillName,
-        progress,
-        resources
+        selectedSkill.name,
+        progressValue / 100, // Convert to 0-1 range
+        completedResources
       );
 
       if (response.success) {
         setDevelopmentPlan(response.updated_plan);
         setUpdateSuccess(true);
-
-        // Update other skills' progress from the response
-        const updatedProgress = {};
-        const updatedCompletedResources = {};
-
-        response.updated_plan.skills.forEach((skill) => {
-          updatedProgress[skill.name] = skill.progress || 0;
-          updatedCompletedResources[skill.name] = skill.resources
-            .filter((resource) => resource.completed)
-            .map((resource) => resource.name);
-        });
-
-        setSkillProgress(updatedProgress);
-        setCompletedResources(updatedCompletedResources);
+        setTimeout(() => {
+          setShowProgressModal(false);
+          setSelectedSkill(null);
+          setProgressValue(0);
+          setCompletedResources([]);
+          setUpdateSuccess(false);
+        }, 1500);
       } else {
         setError(response.message || "Failed to update progress");
       }
@@ -124,12 +78,28 @@ const DevelopmentTracker = ({ employeeId, planId }) => {
       setError("An error occurred while updating progress");
     } finally {
       setIsUpdating(false);
-
-      // Clear success message after 3 seconds
-      if (updateSuccess) {
-        setTimeout(() => setUpdateSuccess(false), 3000);
-      }
     }
+  };
+
+  const openProgressModal = (skill) => {
+    setSelectedSkill(skill);
+    setProgressValue(Math.round((skill.progress || 0) * 100));
+    setCompletedResources(
+      skill.resources
+        ?.filter(r => r.completed)
+        .map(r => r.name) || []
+    );
+    setShowProgressModal(true);
+  };
+
+  const toggleResourceCompletion = (resourceName) => {
+    setCompletedResources(prev => {
+      if (prev.includes(resourceName)) {
+        return prev.filter(name => name !== resourceName);
+      } else {
+        return [...prev, resourceName];
+      }
+    });
   };
 
   const getProgressColor = (progress) => {
@@ -138,20 +108,12 @@ const DevelopmentTracker = ({ employeeId, planId }) => {
     return "bg-blue-500";
   };
 
-  const getStatusText = (progress) => {
-    if (progress >= 1) return "Completed";
-    if (progress >= 0.7) return "Advanced";
-    if (progress >= 0.3) return "In Progress";
-    if (progress > 0) return "Started";
-    return "Not Started";
-  };
-
-  const getStatusColor = (progress) => {
-    if (progress >= 1) return "bg-green-100 text-green-800";
-    if (progress >= 0.7) return "bg-blue-100 text-blue-800";
-    if (progress >= 0.3) return "bg-yellow-100 text-yellow-800";
-    if (progress > 0) return "bg-purple-100 text-purple-800";
-    return "bg-gray-100 text-gray-800";
+  const getStatusBadge = (progress) => {
+    if (progress >= 1) return { text: "Completed", color: "bg-green-100 text-green-800" };
+    if (progress >= 0.7) return { text: "Advanced", color: "bg-blue-100 text-blue-800" };
+    if (progress >= 0.3) return { text: "In Progress", color: "bg-yellow-100 text-yellow-800" };
+    if (progress > 0) return { text: "Started", color: "bg-purple-100 text-purple-800" };
+    return { text: "Not Started", color: "bg-gray-100 text-gray-800" };
   };
 
   const formatDate = (dateString) => {
@@ -164,9 +126,25 @@ const DevelopmentTracker = ({ employeeId, planId }) => {
     });
   };
 
+  const getDaysRemaining = (targetDate) => {
+    if (!targetDate) return null;
+    const target = new Date(targetDate);
+    const today = new Date();
+    const diffTime = target - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+  const closeModal = () => {
+    setShowProgressModal(false);
+    setSelectedSkill(null);
+    setProgressValue(0);
+    setCompletedResources([]);
+  };
+
   if (isLoading) {
     return (
-      <Card title="Development Plan">
+      <Card title="Development Plan Progress">
         <div className="py-8">
           <Loading text="Loading development plan..." />
         </div>
@@ -174,9 +152,9 @@ const DevelopmentTracker = ({ employeeId, planId }) => {
     );
   }
 
-  if (error) {
+  if (error && !developmentPlan) {
     return (
-      <Card title="Development Plan">
+      <Card title="Development Plan Progress">
         <div className="p-4 text-red-700 rounded-md bg-red-50">
           <p>{error}</p>
           <Button
@@ -194,219 +172,264 @@ const DevelopmentTracker = ({ employeeId, planId }) => {
 
   if (!developmentPlan) {
     return (
-      <Card title="Development Plan">
+      <Card title="Development Plan Progress">
         <div className="py-8 text-center text-gray-500">
-          No development plan found. Create one from recommendations.
+          No development plan found.
         </div>
       </Card>
     );
   }
 
+  const overallProgress = developmentPlan.overall_progress || 0;
+  const daysRemaining = getDaysRemaining(developmentPlan.end_date);
+
+  // Modal footer content
+  const modalFooter = (
+    <>
+      <Button
+        variant="outline"
+        onClick={closeModal}
+        disabled={isUpdating}
+      >
+        Cancel
+      </Button>
+      <Button
+        variant="primary"
+        onClick={handleUpdateProgress}
+        disabled={isUpdating}
+        className="ml-3"
+        icon={
+          isUpdating ? (
+            <svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          ) : null
+        }
+      >
+        {isUpdating ? "Updating..." : "Update Progress"}
+      </Button>
+    </>
+  );
+
   return (
-    <Card
-      title="Development Plan Tracker"
-      subtitle={`Created on ${formatDate(developmentPlan.created_at)}`}
-    >
-      <div className="space-y-6">
-        <div className="p-4 rounded-md bg-gray-50">
-          <div className="flex flex-wrap items-center justify-between">
-            <div>
-              <h3 className="font-medium text-gray-800">Overall Progress</h3>
-              <p className="mt-1 text-sm text-gray-600">
-                Plan duration: {developmentPlan.duration_days} days (
-                {formatDate(developmentPlan.start_date)} to{" "}
-                {formatDate(developmentPlan.end_date)})
-              </p>
-            </div>
-            <div className="text-2xl font-bold text-gray-900">
-              {Math.round(developmentPlan.overall_progress * 100)}%
-            </div>
-          </div>
-
-          <div className="mt-3">
-            <div className="h-2 overflow-hidden bg-gray-200 rounded-full">
-              <div
-                className={`h-full ${getProgressColor(
-                  developmentPlan.overall_progress
-                )}`}
-                style={{ width: `${developmentPlan.overall_progress * 100}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-8">
-          {developmentPlan.skills.map((skill) => (
-            <div key={skill.name} className="pt-4 border-t">
-              <div className="flex flex-wrap items-start justify-between mb-4">
-                <div>
-                  <h3 className="font-medium text-gray-800">{skill.name}</h3>
-                  <div className="flex items-center mt-1">
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded ${getStatusColor(
-                        skill.progress
-                      )}`}
-                    >
-                      {getStatusText(skill.progress)}
-                    </span>
-                    <span className="ml-2 text-xs text-gray-500">
-                      Due by {formatDate(skill.target_date)}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-lg font-semibold text-gray-900">
-                  {Math.round(skill.progress * 100)}%
-                </div>
+    <>
+      <Card
+        title="Development Plan Progress"
+        subtitle={`Track your learning journey and update progress`}
+      >
+        <div className="space-y-6">
+          {/* Plan Overview */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-gray-600 mb-1">Started</p>
+                <p className="font-medium text-gray-800">
+                  {formatDate(developmentPlan.start_date)}
+                </p>
               </div>
-
-              <div className="mb-4">
-                <div className="flex justify-between mb-1 text-xs text-gray-500">
-                  <span>Progress</span>
-                  <span>{Math.round(skill.progress * 100)}%</span>
-                </div>
-                <div className="h-2 overflow-hidden bg-gray-200 rounded-full">
-                  <div
-                    className={`h-full ${getProgressColor(skill.progress)}`}
-                    style={{ width: `${skill.progress * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <label
-                  htmlFor={`progress-${skill.name}`}
-                  className="block mb-1 text-sm font-medium text-gray-700"
-                >
-                  Update Progress
-                </label>
-                <div className="flex items-center">
-                  <input
-                    type="range"
-                    id={`progress-${skill.name}`}
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={skillProgress[skill.name] || 0}
-                    onChange={(e) =>
-                      handleProgressChange(skill.name, e.target.value)
+              <div>
+                <p className="text-xs text-gray-600 mb-1">Target Completion</p>
+                <p className="font-medium text-gray-800">
+                  {formatDate(developmentPlan.end_date)}
+                </p>
+                {daysRemaining !== null && (
+                  <p className={`text-xs mt-1 ${
+                    daysRemaining < 0 ? 'text-red-600' :
+                    daysRemaining < 30 ? 'text-yellow-600' :
+                    'text-green-600'
+                  }`}>
+                    {daysRemaining < 0 
+                      ? `${Math.abs(daysRemaining)} days overdue`
+                      : `${daysRemaining} days remaining`
                     }
-                    className="flex-grow h-2 bg-gray-200 rounded-full appearance-none cursor-pointer"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">
-                    {Math.round((skillProgress[skill.name] || 0) * 100)}%
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-gray-600 mb-1">Overall Progress</p>
+                <div className="flex items-center">
+                  <div className="flex-grow mr-3">
+                    <div className="h-3 bg-gray-200 rounded-full">
+                      <div
+                        className={`h-full rounded-full transition-all ${getProgressColor(overallProgress)}`}
+                        style={{ width: `${overallProgress * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                  <span className="text-lg font-bold text-gray-800">
+                    {Math.round(overallProgress * 100)}%
                   </span>
                 </div>
               </div>
+            </div>
+          </div>
 
-              {skill.resources && skill.resources.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="mb-2 text-sm font-medium text-gray-700">
-                    Learning Resources
-                  </h4>
-                  <div className="space-y-2">
-                    {skill.resources.map((resource, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center p-2 border rounded-md cursor-pointer hover:bg-gray-50"
-                        onClick={() =>
-                          handleResourceToggle(skill.name, resource.name)
-                        }
-                      >
-                        <div
-                          className={`h-5 w-5 rounded border mr-3 ${
-                            completedResources[skill.name]?.includes(
-                              resource.name
-                            )
-                              ? "bg-green-500 border-green-500 flex items-center justify-center"
-                              : "border-gray-300"
-                          }`}
-                        >
-                          {completedResources[skill.name]?.includes(
-                            resource.name
-                          ) && (
-                            <svg
-                              className="w-3 h-3 text-white"
-                              fill="currentColor"
-                              viewBox="0 0 20 20"
-                            >
-                              <path
-                                fillRule="evenodd"
-                                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                clipRule="evenodd"
-                              />
-                            </svg>
-                          )}
-                        </div>
-                        <div className="flex-grow">
-                          <p
-                            className={`text-sm ${
-                              completedResources[skill.name]?.includes(
-                                resource.name
-                              )
-                                ? "line-through text-gray-500"
-                                : "text-gray-800"
-                            }`}
-                          >
-                            {resource.name}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {resource.provider}
-                          </p>
-                        </div>
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded ${
-                            resource.type === "Course"
-                              ? "bg-blue-100 text-blue-800"
-                              : resource.type === "Book"
-                              ? "bg-purple-100 text-purple-800"
-                              : resource.type === "Tutorial"
-                              ? "bg-green-100 text-green-800"
-                              : "bg-gray-100 text-gray-800"
-                          }`}
-                        >
-                          {resource.type}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+          {/* Skills Progress */}
+          <div className="space-y-4">
+            <h3 className="font-medium text-gray-800 flex items-center">
+              <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+              Skills Progress
+            </h3>
 
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleUpdateProgress(skill.name)}
-                  disabled={isUpdating}
+            {developmentPlan.skills?.map((skill, index) => {
+              const progress = skill.progress || 0;
+              const status = getStatusBadge(progress);
+              const daysUntilTarget = getDaysRemaining(skill.target_date);
+              const completedResourceCount = skill.resources?.filter(r => r.completed).length || 0;
+              const totalResourceCount = skill.resources?.length || 0;
+
+              return (
+                <div
+                  key={index}
+                  className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
                 >
-                  Update Progress
-                </Button>
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h4 className="font-medium text-gray-800">{skill.name}</h4>
+                      <div className="flex items-center mt-1 space-x-3">
+                        <span className={`text-xs px-2 py-0.5 rounded ${status.color}`}>
+                          {status.text}
+                        </span>
+                        {daysUntilTarget !== null && (
+                          <span className={`text-xs ${
+                            daysUntilTarget < 0 ? 'text-red-600' :
+                            daysUntilTarget < 14 ? 'text-yellow-600' :
+                            'text-gray-600'
+                          }`}>
+                            Due in {daysUntilTarget} days
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openProgressModal(skill)}
+                      icon={
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      }
+                    >
+                      Update
+                    </Button>
+                  </div>
+
+                  <div className="mb-3">
+                    <div className="flex justify-between mb-1">
+                      <span className="text-xs text-gray-600">Progress</span>
+                      <span className="text-xs font-medium text-gray-800">
+                        {Math.round(progress * 100)}%
+                      </span>
+                    </div>
+                    <div className="h-2 bg-gray-200 rounded-full">
+                      <div
+                        className={`h-full rounded-full transition-all ${getProgressColor(progress)}`}
+                        style={{ width: `${progress * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {totalResourceCount > 0 && (
+                    <div className="text-xs text-gray-600">
+                      <span className="font-medium">{completedResourceCount}/{totalResourceCount}</span> resources completed
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Success Message */}
+          {updateSuccess && (
+            <div className="p-3 text-green-700 rounded-md bg-green-50 animate-fade-in">
+              Progress updated successfully!
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Progress Update Modal */}
+      <Modal
+        isOpen={showProgressModal}
+        onClose={closeModal}
+        title={`Update Progress: ${selectedSkill?.name}`}
+        footer={modalFooter}
+        size="md"
+      >
+        {selectedSkill && (
+          <div className="space-y-6">
+            {/* Progress Slider */}
+            <div>
+              <label className="block mb-2 text-sm font-medium text-gray-700">
+                Overall Progress
+              </label>
+              <div className="space-y-2">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={progressValue}
+                  onChange={(e) => setProgressValue(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, #3B82F6 0%, #3B82F6 ${progressValue}%, #E5E7EB ${progressValue}%, #E5E7EB 100%)`
+                  }}
+                />
+                <div className="flex justify-between text-xs text-gray-600">
+                  <span>0%</span>
+                  <span className="font-medium text-lg text-gray-800">{progressValue}%</span>
+                  <span>100%</span>
+                </div>
               </div>
             </div>
-          ))}
-        </div>
 
-        {updateSuccess && (
-          <div className="p-3 mt-4 text-green-700 rounded-md bg-green-50">
-            Progress updated successfully!
+            {/* Resources Checklist */}
+            {selectedSkill.resources && selectedSkill.resources.length > 0 && (
+              <div>
+                <label className="block mb-2 text-sm font-medium text-gray-700">
+                  Completed Resources
+                </label>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {selectedSkill.resources.map((resource, idx) => (
+                    <label
+                      key={idx}
+                      className="flex items-start p-3 bg-gray-50 rounded-md cursor-pointer hover:bg-gray-100"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={completedResources.includes(resource.name)}
+                        onChange={() => toggleResourceCompletion(resource.name)}
+                        className="mt-0.5 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <div className="ml-3">
+                        <p className="text-sm font-medium text-gray-800">
+                          {resource.name}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          {resource.provider} • {resource.type}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Progress Tips */}
+            <div className="bg-blue-50 rounded-md p-3">
+              <p className="text-xs text-blue-800">
+                <strong>Tip:</strong> Update your progress regularly to stay motivated and track your learning journey effectively.
+              </p>
+            </div>
           </div>
         )}
-
-        <div className="flex justify-between pt-4 border-t">
-          <span className="text-sm text-gray-500">
-            Keep track of your progress and mark completed resources
-          </span>
-
-          <Button
-            variant="primary"
-            onClick={fetchDevelopmentPlan}
-            disabled={isLoading}
-          >
-            Refresh Plan
-          </Button>
-        </div>
-      </div>
-    </Card>
+      </Modal>
+    </>
   );
 };
 

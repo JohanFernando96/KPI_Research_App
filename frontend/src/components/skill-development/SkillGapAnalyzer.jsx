@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+// frontend/src/components/skill-development/SkillGapAnalyzer.jsx
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Card from "../common/Card";
 import Button from "../common/Button";
 import Loading from "../common/Loading";
@@ -9,72 +10,80 @@ const SkillGapAnalyzer = ({ employeeId, employeeData, onAnalysisComplete }) => {
   const [error, setError] = useState("");
   const [analysis, setAnalysis] = useState(null);
   const [analysisType, setAnalysisType] = useState("career");
+  // Cache analysis results to prevent reloading
+  const [analysisCache, setAnalysisCache] = useState({});
 
-const handleAnalyzeSkillGap = async () => {
-  if (!employeeId) return;
-
-  setIsLoading(true);
-  setError("");
-
-  try {
-    const currentRole = employeeData?.Experience?.[0]?.Role || "";
-    
-    // Make sure we provide role_name for role-based analysis
-    const requestData = {
-      analysis_type: analysisType,
-      current_role: currentRole
-    };
-    
-    // For role analysis, ensure we have a default role if none provided
-    if (analysisType === "role") {
-      requestData.role_name = "Software Engineer"; // Default role if none selected
-    }
-
-    const response = await recommendationService.analyzeSkillGap(
-      employeeId,
-      analysisType,
-      requestData
-    );
-
-    if (response.success) {
-      setAnalysis(response.analysis);
+  const handleAnalyzeSkillGap = useCallback(async (type = analysisType) => {
+    // Check cache first
+    if (analysisCache[type]) {
+      setAnalysis(analysisCache[type]);
       if (onAnalysisComplete) {
-        onAnalysisComplete(response.analysis);
+        onAnalysisComplete(analysisCache[type]);
       }
-    } else {
-      setError(response.message || "Failed to analyze skill gap");
+      return;
     }
-  } catch (error) {
-    console.error("Error analyzing skill gap:", error);
-    setError("An error occurred while analyzing skill gap");
-  } finally {
-    setIsLoading(false);
-  }
-};
+
+    if (!employeeId) return;
+
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const currentRole = employeeData?.Experience?.[0]?.Role || "";
+      
+      const requestData = {
+        current_role: currentRole
+      };
+      
+      // For role analysis, ensure we have a default role if none provided
+      if (type === "role") {
+        requestData.role_name = currentRole || "Software Engineer";
+      }
+
+      const response = await recommendationService.analyzeSkillGap(
+        employeeId,
+        type,
+        requestData
+      );
+
+      if (response.success) {
+        // Cache the result
+        setAnalysisCache(prev => ({
+          ...prev,
+          [type]: response.analysis
+        }));
+        setAnalysis(response.analysis);
+        if (onAnalysisComplete) {
+          onAnalysisComplete(response.analysis);
+        }
+      } else {
+        setError(response.message || "Failed to analyze skill gap");
+      }
+    } catch (error) {
+      console.error("Error analyzing skill gap:", error);
+      setError("An error occurred while analyzing skill gap");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [employeeId, employeeData, analysisType, analysisCache, onAnalysisComplete]);
 
   useEffect(() => {
-    if (employeeId) {
-      handleAnalyzeSkillGap();
+    if (employeeId && !analysisCache[analysisType]) {
+      handleAnalyzeSkillGap(analysisType);
+    } else if (analysisCache[analysisType]) {
+      setAnalysis(analysisCache[analysisType]);
     }
   }, [employeeId, analysisType]);
-
-  const renderAnalysisResults = () => {
-    if (!analysis) return null;
-
-    if (analysisType === "career") {
-      return renderCareerAnalysis();
-    } else if (analysisType === "role") {
-      return renderRoleAnalysis();
-    }
-
-    return null;
-  };
 
   const renderCareerAnalysis = () => {
     if (!analysis) return null;
 
     const { current_role, next_role, readiness, skill_gaps } = analysis;
     const readinessPercentage = Math.round((readiness || 0) * 100);
+
+    // Handle both old and new API response formats
+    const nextRoleTitle = analysis.next_role_details?.role_title || next_role;
+    const skillGapsData = analysis.next_role_details?.skill_gaps || skill_gaps || {};
 
     return (
       <div className="space-y-4">
@@ -93,7 +102,7 @@ const handleAnalyzeSkillGap = async () => {
               Next Role
             </h3>
             <p className="text-lg font-semibold text-gray-900">
-              {next_role || "Highest Level"}
+              {nextRoleTitle || "Highest Level"}
             </p>
           </div>
 
@@ -126,48 +135,77 @@ const handleAnalyzeSkillGap = async () => {
             Skill Gaps for Next Role
           </h3>
 
-          {skill_gaps && (
+          {skillGapsData && (
             <div className="space-y-4">
-              {skill_gaps.technical && skill_gaps.technical.length > 0 && (
+              {skillGapsData.technical && skillGapsData.technical.length > 0 && (
                 <div>
                   <h4 className="mb-2 text-sm font-medium text-gray-700">
                     Technical Skills
                   </h4>
                   <div className="flex flex-wrap gap-2">
-                    {skill_gaps.technical.map((skill, index) => (
-                      <span
-                        key={index}
-                        className="bg-blue-100 text-blue-800 text-xs px-2.5 py-1 rounded"
-                      >
-                        {skill.name}
-                      </span>
-                    ))}
+                    {skillGapsData.technical.map((skill, index) => {
+                      const skillName = typeof skill === 'string' ? skill : skill.name || skill;
+                      return (
+                        <span
+                          key={index}
+                          className="bg-blue-100 text-blue-800 text-xs px-2.5 py-1 rounded"
+                        >
+                          {skillName}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {skill_gaps.soft && skill_gaps.soft.length > 0 && (
+              {skillGapsData.soft && skillGapsData.soft.length > 0 && (
                 <div>
                   <h4 className="mb-2 text-sm font-medium text-gray-700">
                     Soft Skills
                   </h4>
                   <div className="flex flex-wrap gap-2">
-                    {skill_gaps.soft.map((skill, index) => (
-                      <span
-                        key={index}
-                        className="bg-purple-100 text-purple-800 text-xs px-2.5 py-1 rounded"
-                      >
-                        {skill.name}
-                      </span>
-                    ))}
+                    {skillGapsData.soft.map((skill, index) => {
+                      const skillName = typeof skill === 'string' ? skill : skill.name || skill;
+                      return (
+                        <span
+                          key={index}
+                          className="bg-purple-100 text-purple-800 text-xs px-2.5 py-1 rounded"
+                        >
+                          {skillName}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {skillGapsData.domain && skillGapsData.domain.length > 0 && (
+                <div>
+                  <h4 className="mb-2 text-sm font-medium text-gray-700">
+                    Domain Skills
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {skillGapsData.domain.map((skill, index) => {
+                      const skillName = typeof skill === 'string' ? skill : skill.name || skill;
+                      return (
+                        <span
+                          key={index}
+                          className="bg-green-100 text-green-800 text-xs px-2.5 py-1 rounded"
+                        >
+                          {skillName}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          {(!skill_gaps ||
-            (!skill_gaps.technical?.length && !skill_gaps.soft?.length)) && (
+          {(!skillGapsData ||
+            (!skillGapsData.technical?.length && 
+             !skillGapsData.soft?.length && 
+             !skillGapsData.domain?.length)) && (
             <p className="text-gray-500">
               No skill gaps identified for the next role.
             </p>
@@ -180,7 +218,6 @@ const handleAnalyzeSkillGap = async () => {
   const renderRoleAnalysis = () => {
     if (!analysis || !analysis.role) return null;
 
-    // Destructure with default values to prevent "undefined" errors
     const {
       role,
       technical = {},
@@ -189,15 +226,14 @@ const handleAnalyzeSkillGap = async () => {
       is_qualified = false,
     } = analysis;
 
-    // Provide default objects for technical and soft skill data
     const technicalData = {
-      coverage: technical?.coverage || 0,
+      coverage: technical?.total_coverage || technical?.coverage || 0,
       gaps: technical?.gaps || [],
       matches: technical?.matches || [],
     };
 
     const softData = {
-      coverage: soft?.coverage || 0,
+      coverage: soft?.total_coverage || soft?.coverage || 0,
       gaps: soft?.gaps || [],
       matches: soft?.matches || [],
     };
@@ -278,7 +314,7 @@ const handleAnalyzeSkillGap = async () => {
                       key={index}
                       className="bg-red-100 text-red-800 text-xs px-2.5 py-1 rounded"
                     >
-                      {skill.name}
+                      {skill.name || skill}
                     </span>
                   ))}
                 </div>
@@ -296,7 +332,7 @@ const handleAnalyzeSkillGap = async () => {
                       key={index}
                       className="bg-green-100 text-green-800 text-xs px-2.5 py-1 rounded"
                     >
-                      {skill.name}
+                      {skill.name || skill}
                     </span>
                   ))}
                 </div>
@@ -331,7 +367,7 @@ const handleAnalyzeSkillGap = async () => {
                       key={index}
                       className="bg-red-100 text-red-800 text-xs px-2.5 py-1 rounded"
                     >
-                      {skill.name}
+                      {skill.name || skill}
                     </span>
                   ))}
                 </div>
@@ -349,7 +385,7 @@ const handleAnalyzeSkillGap = async () => {
                       key={index}
                       className="bg-green-100 text-green-800 text-xs px-2.5 py-1 rounded"
                     >
-                      {skill.name}
+                      {skill.name || skill}
                     </span>
                   ))}
                 </div>
@@ -395,13 +431,15 @@ const handleAnalyzeSkillGap = async () => {
               variant="outline"
               size="sm"
               className="mt-2"
-              onClick={handleAnalyzeSkillGap}
+              onClick={() => handleAnalyzeSkillGap(analysisType)}
             >
               Retry
             </Button>
           </div>
         ) : (
-          renderAnalysisResults()
+          <div>
+            {analysisType === "career" ? renderCareerAnalysis() : renderRoleAnalysis()}
+          </div>
         )}
       </div>
     </Card>

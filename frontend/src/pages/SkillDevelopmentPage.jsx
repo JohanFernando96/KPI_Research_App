@@ -29,6 +29,7 @@ const SkillDevelopmentPage = () => {
   const [isCreatingPlan, setIsCreatingPlan] = useState(false);
   const [createPlanError, setCreatePlanError] = useState("");
   const [hasLoadedPlans, setHasLoadedPlans] = useState(false);
+  const [hasAnalyzed, setHasAnalyzed] = useState(false);
 
   // Fetch employee data
   useEffect(() => {
@@ -91,6 +92,7 @@ const SkillDevelopmentPage = () => {
 
   const handleAnalysisComplete = (analysis) => {
     setSkillGapAnalysis(analysis);
+    setHasAnalyzed(true);
   };
 
   const handleRecommendationsLoaded = (recs) => {
@@ -149,9 +151,10 @@ const SkillDevelopmentPage = () => {
   const handleTabChange = (newTab) => {
     setActiveTab(newTab);
     
-    // Reset recommendations when switching away from resources tab
-    if (newTab !== "resources") {
-      setRecommendations(null);
+    // Don't reset recommendations when switching tabs
+    // Only reset when going back to analysis
+    if (newTab === "analysis") {
+      setHasAnalyzed(false);
     }
   };
 
@@ -169,19 +172,25 @@ const SkillDevelopmentPage = () => {
               employeeId={employeeId}
               employeeData={employee}
               analysis={skillGapAnalysis}
-              onRecommendationsLoaded={handleRecommendationsLoaded}
+              onRecommendationsLoaded={setRecommendations}
             />
           </div>
         );
 
       case "resources":
-        return (
+        return recommendations ? (
           <TrainingResourceList
             employeeId={employeeId}
             recommendations={recommendations}
             onStartTraining={handleStartTraining}
           />
-        );
+        ) : (
+          <Card>
+            <div className="py-8 text-center text-gray-500">
+              Please complete skill gap analysis first to see training resources.
+            </div>
+          </Card>
+      );
 
       case "tracker":
         return developmentPlans.length > 0 ? (
