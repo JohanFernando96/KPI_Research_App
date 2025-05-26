@@ -99,6 +99,8 @@ const AppRoutes = () => {
             path="skill-development/:employeeId"
             element={<SkillDevelopmentPage />}
           />
+          <Route path="/skill-development" element={<SkillDevelopmentPage />} />
+          <Route path="/skill-development/:employeeId" element={<SkillDevelopmentPage />} />
         </Route>
 
         {/* 404 Page */}

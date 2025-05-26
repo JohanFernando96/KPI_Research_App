@@ -5,3 +5,5 @@ backend/.env
 /backend/modules/kpi_generation/__pycache__
 /backend/services/__pycache__
 /backend/utils/__pycache__
+*.pyc
+*.pyc
