@@ -15,23 +15,6 @@ from utils.error_handlers import ValidationError, NotFoundError
 recommendation_blueprint = Blueprint('recommendations', __name__)
 
 
-from flask import Blueprint, request, jsonify
-from bson.objectid import ObjectId
-import json
-from datetime import datetime
-
-from services.mongodb_service import mongodb_service
-from services.openai_service import openai_service
-from modules.skill_recommendation.skill_gap_analyzer import SkillGapAnalyzer
-from modules.skill_recommendation.role_hierarchy import RoleHierarchy
-from modules.skill_recommendation.training_recommender import TrainingRecommender
-from modules.skill_recommendation.progress_tracker import ProgressTracker
-from modules.employee_matching.experience_analyzer import ExperienceAnalyzer
-from utils.error_handlers import ValidationError, NotFoundError
-
-recommendation_blueprint = Blueprint('recommendations', __name__)
-
-
 @recommendation_blueprint.route('/employees/<employee_id>/skill-gap', methods=['POST'])
 def analyze_employee_skill_gap(employee_id):
     """
@@ -279,7 +262,7 @@ def create_development_plan(employee_id):
         deadline = None
         if deadline_str:
             try:
-                deadline = datetime.fromisoformat(deadline_str)
+                deadline = datetime.fromisoformat(deadline_str.replace('Z', '+00:00'))
             except ValueError:
                 raise ValidationError(f"Invalid deadline format: {deadline_str}")
 
@@ -291,7 +274,7 @@ def create_development_plan(employee_id):
         )
 
         # Add metadata to the plan
-        development_plan['employee_id'] = employee_id
+        development_plan['employee_id'] = employee_id  # Store as string, not ObjectId
         development_plan['created_at'] = datetime.now()
         development_plan['overall_progress'] = 0.0
 
@@ -302,17 +285,34 @@ def create_development_plan(employee_id):
         mongodb_service.update_one(
             'Resumes',
             {'_id': object_id},
-            {'$push': {'development_plans': plan_id}}
+            {'$push': {'development_plans': str(plan_id)}}  # Convert ObjectId to string
         )
+
+        # Convert datetime objects to ISO format strings for JSON serialization
+        if isinstance(development_plan.get('start_date'), datetime):
+            development_plan['start_date'] = development_plan['start_date'].isoformat()
+        if isinstance(development_plan.get('end_date'), datetime):
+            development_plan['end_date'] = development_plan['end_date'].isoformat()
+        if isinstance(development_plan.get('created_at'), datetime):
+            development_plan['created_at'] = development_plan['created_at'].isoformat()
+
+        # Convert dates in skills
+        for skill in development_plan.get('skills', []):
+            if isinstance(skill.get('start_date'), datetime):
+                skill['start_date'] = skill['start_date'].isoformat()
+            if isinstance(skill.get('target_date'), datetime):
+                skill['target_date'] = skill['target_date'].isoformat()
 
         return jsonify({
             'success': True,
             'employee_id': employee_id,
-            'plan_id': str(plan_id),
+            'plan_id': str(plan_id),  # Convert ObjectId to string
             'development_plan': development_plan
         })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'message': f"Error creating development plan: {str(e)}"
@@ -526,14 +526,32 @@ def get_employee_development_plans(employee_id):
 
             # Convert datetime objects
             for key in ['start_date', 'end_date', 'created_at']:
-                if key in plan and isinstance(plan[key], datetime):
-                    plan[key] = plan[key].isoformat()
+                if key in plan:
+                    if isinstance(plan[key], datetime):
+                        plan[key] = plan[key].isoformat()
+                    elif isinstance(plan[key], str):
+                        # Already a string, ensure it's valid ISO format
+                        try:
+                            # Try to parse and re-format to ensure consistency
+                            dt = datetime.fromisoformat(plan[key].replace('Z', '+00:00'))
+                            plan[key] = dt.isoformat()
+                        except:
+                            # If parsing fails, leave as is
+                            pass
 
             # Convert dates in skills
             for skill in plan.get('skills', []):
                 for key in ['start_date', 'target_date']:
-                    if key in skill and isinstance(skill[key], datetime):
-                        skill[key] = skill[key].isoformat()
+                    if key in skill:
+                        if isinstance(skill[key], datetime):
+                            skill[key] = skill[key].isoformat()
+                        elif isinstance(skill[key], str):
+                            # Already a string, ensure it's valid ISO format
+                            try:
+                                dt = datetime.fromisoformat(skill[key].replace('Z', '+00:00'))
+                                skill[key] = dt.isoformat()
+                            except:
+                                pass
 
         return jsonify({
             'success': True,
@@ -541,6 +559,8 @@ def get_employee_development_plans(employee_id):
         })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'message': f"Error retrieving development plans: {str(e)}"

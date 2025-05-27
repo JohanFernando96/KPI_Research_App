@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
-import pytz  # Add this import
-
+import pytz  # Make sure this import is at the top
 
 class ProgressTracker:
     """
@@ -26,17 +25,20 @@ class ProgressTracker:
         # Calculate end date (default to 3 months if not specified)
         if deadline:
             # Ensure deadline is timezone-aware
-            if isinstance(deadline, datetime):
+            if isinstance(deadline, str):
+                # Parse ISO format string
+                try:
+                    end_date = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+                except:
+                    end_date = datetime.now(pytz.UTC) + timedelta(days=90)
+            elif isinstance(deadline, datetime):
                 if deadline.tzinfo is None:
                     # Make it timezone-aware (UTC)
                     end_date = pytz.UTC.localize(deadline)
                 else:
                     end_date = deadline
             else:
-                # If it's a string, parse it
-                end_date = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
-                if end_date.tzinfo is None:
-                    end_date = pytz.UTC.localize(end_date)
+                end_date = datetime.now(pytz.UTC) + timedelta(days=90)
         else:
             end_date = datetime.now(pytz.UTC) + timedelta(days=90)
 
@@ -44,10 +46,10 @@ class ProgressTracker:
         start_date = datetime.now(pytz.UTC)
         duration = (end_date - start_date).days
 
-        # Create plan
+        # Create plan - convert datetime objects to ISO strings for JSON serialization
         plan = {
-            'start_date': start_date,
-            'end_date': end_date,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
             'duration_days': duration,
             'skills': []
         }
@@ -78,12 +80,12 @@ class ProgressTracker:
             if milestone_date > end_date:
                 milestone_date = end_date
 
-            # Add skill to plan
+            # Add skill to plan with ISO date strings
             plan['skills'].append({
                 'name': skill_name,
                 'required_proficiency': required_proficiency,
-                'start_date': current_date,
-                'target_date': milestone_date,
+                'start_date': current_date.isoformat(),
+                'target_date': milestone_date.isoformat(),
                 'resources': resources,
                 'status': 'Not Started',
                 'progress': 0.0
@@ -93,63 +95,3 @@ class ProgressTracker:
             current_date = milestone_date
 
         return plan
-
-    @staticmethod
-    def update_progress(development_plan, skill_name, progress, completed_resources=None):
-        """
-        Update progress for a skill in the development plan.
-
-        Args:
-            development_plan: Skill development plan.
-            skill_name: Name of the skill to update.
-            progress: Progress value (0.0 to 1.0).
-            completed_resources: List of completed training resources.
-
-        Returns:
-            dict: Updated development plan.
-        """
-        if not development_plan or 'skills' not in development_plan:
-            return development_plan
-
-        # Make a copy of the plan
-        updated_plan = development_plan.copy()
-        updated_skills = []
-
-        for skill in development_plan['skills']:
-            # Find the skill to update
-            if skill['name'].lower() == skill_name.lower():
-                # Update progress
-                skill_copy = skill.copy()
-                skill_copy['progress'] = min(1.0, max(0.0, progress))  # Ensure progress is between 0 and 1
-
-                # Update status based on progress
-                if skill_copy['progress'] >= 1.0:
-                    skill_copy['status'] = 'Completed'
-                elif skill_copy['progress'] > 0:
-                    skill_copy['status'] = 'In Progress'
-
-                # Update completed resources
-                if completed_resources:
-                    # Mark resources as completed
-                    updated_resources = []
-                    for resource in skill_copy.get('resources', []):
-                        resource_copy = resource.copy()
-                        resource_name = resource.get('name', '')
-                        if resource_name in completed_resources:
-                            resource_copy['completed'] = True
-                        updated_resources.append(resource_copy)
-
-                    skill_copy['resources'] = updated_resources
-
-                updated_skills.append(skill_copy)
-            else:
-                updated_skills.append(skill.copy())
-
-        updated_plan['skills'] = updated_skills
-
-        # Update overall progress
-        total_progress = sum(skill.get('progress', 0) for skill in updated_skills)
-        overall_progress = total_progress / len(updated_skills) if updated_skills else 0
-        updated_plan['overall_progress'] = overall_progress
-
-        return updated_plan
