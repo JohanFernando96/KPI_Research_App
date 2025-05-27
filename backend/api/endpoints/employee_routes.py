@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from flask import Response
 from bson import json_util
 from bson.objectid import ObjectId
@@ -16,32 +16,18 @@ employee_blueprint = Blueprint('employees', __name__)
 
 @employee_blueprint.route('', methods=['GET'])
 def get_all_employees():
-    """
-    Endpoint for retrieving all employees from the database.
-    """
     try:
-        # Get all employees from MongoDB
-        employees = mongodb_service.find_many('Resumes')
-
-        # Convert ObjectId to string for JSON serialization
-        for employee in employees:
-            if '_id' in employee:
-                employee['_id'] = str(employee['_id'])
-
-            # Also add an 'id' field for consistency
-            employee['id'] = employee.get('_id', '')
-
-        return jsonify({
+        employees = mongodb_service.find_many('Resumes') or []
+        payload = {
             'success': True,
             'total': len(employees),
             'data': employees
-        })
-
+        }
+        # json_util.dumps will convert ObjectId, dates, etc.
+        return Response(json_util.dumps(payload), mimetype='application/json')
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f"Error retrieving employees: {str(e)}"
-        }), 500
+        current_app.logger.error(f"Error retrieving employees: {e}")
+        return jsonify({'success': False, 'message': 'Error retrieving employees'}), 500
 
 
 @employee_blueprint.route('/<employee_id>', methods=['GET'])

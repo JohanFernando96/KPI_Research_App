@@ -50,38 +50,6 @@ const TalentPoolPage = () => {
   const skillFilter = location.state?.skillFilter || "";
   const replaceExisting = location.state?.replaceExisting;
 
-  // Helper function to ensure we have a string ID
-  const getEmployeeId = (employee) => {
-    if (!employee) return null;
-    
-    // If _id is already a string, return it
-    if (typeof employee._id === 'string') {
-      return employee._id;
-    }
-    
-    // If _id is an object (ObjectId), convert to string
-    if (employee._id && typeof employee._id === 'object') {
-      // ObjectId might have toString() method or $oid property
-      return employee._id.toString() || employee._id.$oid || String(employee._id);
-    }
-    
-    // Fallback to id property if _id is not available
-    if (employee.id) {
-      return String(employee.id);
-    }
-    
-    return null;
-  };
-
-  // Helper function to find employee by ID
-  const findEmployeeById = (employeesList, targetId) => {
-    const targetIdStr = String(targetId);
-    return employeesList.find((emp) => {
-      const empId = getEmployeeId(emp);
-      return empId === targetIdStr;
-    });
-  };
-
   // This effect runs on component mount to ensure we have employees
   useEffect(() => {
     if (isSelectingForProject && projectId && roleId) {
@@ -102,28 +70,26 @@ const TalentPoolPage = () => {
 
   // This effect handles filter changes from location state
   useEffect(() => {
-    // Reset filters if coming from a project selection link
+    console.log("Location state changed:", location.state);
+
+    // Force clear all filters first to reset the state
     clearFilters();
+
+    // Then apply the skill filter if provided
     if (skillFilter) {
+      console.log("Setting skill filter:", skillFilter);
       setFilter("skills", skillFilter);
     }
+
+    // If we have an employeeId in URL, show the detail view
     if (employeeId) {
       setSelectedEmployeeId(employeeId);
       setViewMode("detail");
     }
-  }, [employeeId, skillFilter, clearFilters, setFilter]);  
+  }, [employeeId, skillFilter, setFilter, clearFilters, location.state]);
 
   // This effect ensures we have employees to display
   useEffect(() => {
-    // Ensure all employees have string IDs
-    const normalizeEmployees = (empList) => {
-      return empList.map(emp => ({
-        ...emp,
-        _id: getEmployeeId(emp) || String(emp._id || emp.id || ''),
-        id: getEmployeeId(emp) || String(emp._id || emp.id || '')
-      }));
-    };
-
     // If there are no filtered employees but we have employees in the store
     // and we're in selection mode, use all employees
     if (
@@ -135,10 +101,10 @@ const TalentPoolPage = () => {
         "No filtered employees, but have employees in store:",
         employees.length
       );
-      setLocalEmployees(normalizeEmployees(employees));
+      setLocalEmployees(employees);
     } else {
       console.log("Using filtered employees:", filteredEmployees.length);
-      setLocalEmployees(normalizeEmployees(filteredEmployees));
+      setLocalEmployees(filteredEmployees);
     }
   }, [filteredEmployees, employees, isSelectingForProject]);
 
@@ -156,13 +122,7 @@ const TalentPoolPage = () => {
       const response = await employeeService.getAllEmployees();
       if (response.success) {
         console.log("Manually fetched employees:", response.data.length);
-        // Ensure all employees have string IDs
-        const normalizedEmployees = response.data.map(emp => ({
-          ...emp,
-          _id: getEmployeeId(emp) || String(emp._id || emp.id || ''),
-          id: getEmployeeId(emp) || String(emp._id || emp.id || '')
-        }));
-        setLocalEmployees(normalizedEmployees);
+        setLocalEmployees(response.data);
       } else {
         setErrorMessage("Failed to load employees");
       }
@@ -177,8 +137,7 @@ const TalentPoolPage = () => {
   const fetchEmployeeDetails = async (id) => {
     try {
       setIsLoading(true);
-      const idStr = String(id);
-      const employee = await fetchEmployeeById(idStr);
+      const employee = await fetchEmployeeById(id);
       setSelectedEmployee(employee);
       setIsLoading(false);
     } catch (error) {
@@ -191,36 +150,34 @@ const TalentPoolPage = () => {
   const handleEmployeeSelect = (employeeId) => {
     console.log("Selected employee ID:", employeeId);
 
-    // Ensure employeeId is a string
-    const idStr = String(employeeId);
-    setSelectedEmployeeId(idStr);
+    // Set the selected employee ID
+    setSelectedEmployeeId(employeeId);
 
     // If we're in project role assignment mode, update the roleAssignmentData
     if (isSelectingForProject) {
-      console.log("Updating role assignment data with employee:", idStr);
+      console.log("Updating role assignment data with employee:", employeeId);
       console.log("Current projectId:", projectId);
       console.log("Current roleId:", roleId);
-      
       // Find the employee object to get their name for confirmation UI
-      const employee = findEmployeeById(
-        [...employees, ...filteredEmployees, ...localEmployees],
-        idStr
-      );
+      const employee =
+        employees.find((emp) => emp._id === employeeId) ||
+        filteredEmployees.find((emp) => emp._id === employeeId) ||
+        localEmployees.find((emp) => emp._id === employeeId);
 
       console.log("Found employee:", employee?.Name);
 
       // Update roleAssignmentData with all required fields
       setRoleAssignmentData({
-        employeeId: idStr,
+        employeeId: employeeId,
         projectId: projectId,
         roleId: String(roleId), // Ensure it's a string
         roleName: roleName || "Unknown Role",
       });
 
       console.log("Updated roleAssignmentData:", {
-        employeeId: idStr,
+        employeeId: employeeId,
         projectId: projectId,
-        roleId: String(roleId),
+        roleId: roleId,
         roleName: roleName || "Unknown Role",
       });
     }
@@ -293,7 +250,6 @@ const TalentPoolPage = () => {
       setIsLoading(false);
     }
   };
-  
   const cancelSelection = () => {
     if (isSelectingForProject && projectId) {
       navigate(`/projects/${projectId}/team`);

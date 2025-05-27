@@ -36,29 +36,6 @@ const EmployeeList = ({
     return { level: "Lead", color: "bg-indigo-100 text-indigo-800" };
   };
 
-  // Helper function to ensure we have a string ID
-  const getEmployeeId = (employee) => {
-    if (!employee) return null;
-    
-    // If _id is already a string, return it
-    if (typeof employee._id === 'string') {
-      return employee._id;
-    }
-    
-    // If _id is an object (ObjectId), convert to string
-    if (employee._id && typeof employee._id === 'object') {
-      // ObjectId might have toString() method or $oid property
-      return employee._id.toString() || employee._id.$oid || String(employee._id);
-    }
-    
-    // Fallback to id property if _id is not available
-    if (employee.id) {
-      return String(employee.id);
-    }
-    
-    return null;
-  };
-
   if (employees.length === 0) {
     return (
       <div className="py-8 text-center text-gray-500">
@@ -70,29 +47,25 @@ const EmployeeList = ({
   return (
     <div className="space-y-4">
       {employees.map((employee) => {
-        const employeeId = getEmployeeId(employee);
-        
-        if (!employeeId) {
-          console.error("Employee missing ID:", employee);
-          return null;
-        }
-
         const experienceLevel = getExperienceLevel(employee);
         const isSelected =
           selectionMode &&
-          selectedEmployees.some((e) => getEmployeeId(e) === employeeId);
+          selectedEmployees.some((e) => e._id === employee._id);
 
         return (
           <div
-            key={employeeId}
+            key={employee._id}
             className={`p-4 transition-colors border rounded-md cursor-pointer hover:bg-gray-50 ${
               isSelected ? "border-blue-500 bg-blue-50" : ""
             }`}
             onClick={() => {
-              console.log("Employee clicked:", employee.Name, employeeId);
+              // Add debug logging
+              console.log("Employee clicked:", employee.Name, employee._id);
               if (selectionMode && onEmployeeToggle) {
                 onEmployeeToggle(employee);
               } else if (onSelectEmployee) {
+                // Confirm the ID is being passed correctly
+                const employeeId = employee._id;
                 console.log("Calling onSelectEmployee with ID:", employeeId);
                 onSelectEmployee(employeeId);
               }
@@ -165,14 +138,14 @@ const EmployeeList = ({
               {!selectionMode && (
                 <div className="flex space-x-3">
                   <Link
-                    to={`/skill-development/${employeeId}`}
+                    to={`/skill-development/${employee._id}`}
                     className="text-blue-600 hover:underline"
                     onClick={(e) => e.stopPropagation()}
                   >
                     Skills
                   </Link>
                   <Link
-                    to={`/talent-pool/${employeeId}`}
+                    to={`/talent-pool/${employee._id}`}
                     className="text-blue-600 hover:underline"
                     onClick={(e) => e.stopPropagation()}
                   >
