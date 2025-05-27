@@ -30,17 +30,18 @@ const SkillDevelopmentPage = () => {
   const [createPlanError, setCreatePlanError] = useState("");
   
   // New states for data loading management
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(false);
   const [initializationMessage, setInitializationMessage] = useState("Initializing...");
   const [dataCache, setDataCache] = useState({
     careerAnalysis: null,
     roleAnalysis: null,
     careerRecommendations: null,
+    skillGapRecommendations: null,
     resourceRecommendations: null,
     lastFetched: null
   });
 
-  // Initialize all data
+  // Initialize all data only when employeeId is present
   useEffect(() => {
     if (employeeId) {
       initializeAllData();
@@ -75,14 +76,18 @@ const SkillDevelopmentPage = () => {
 
       // Step 3: Load recommendations
       setInitializationMessage("Finding personalized training recommendations...");
+      
+      // Extract skill gaps from career analysis
+      const allSkillGaps = extractAllSkillGaps(careerAnalysis.analysis);
+      
       const [careerRecs, skillRecs] = await Promise.all([
         recommendationService.getRecommendations(employeeId, "career", { 
           current_role: currentRole,
           target_role: careerAnalysis.analysis?.next_role_details?.role_title || careerAnalysis.analysis?.next_role,
-          skill_gaps: extractAllSkillGaps(careerAnalysis.analysis)
+          skill_gaps: allSkillGaps
         }),
         recommendationService.getRecommendations(employeeId, "skill_gaps", {
-          skill_gaps: extractAllSkillGaps(careerAnalysis.analysis),
+          skill_gaps: allSkillGaps.length > 0 ? allSkillGaps : ["General Skills"], // Provide default if no gaps
           current_role: currentRole
         })
       ]);
@@ -96,7 +101,11 @@ const SkillDevelopmentPage = () => {
         careerAnalysis: careerAnalysis.analysis,
         roleAnalysis: roleAnalysis.analysis,
         careerRecommendations: careerRecs.recommendations,
-        resourceRecommendations: skillRecs.recommendations,
+        skillGapRecommendations: skillRecs.recommendations,
+        resourceRecommendations: {
+          ...careerRecs.recommendations,
+          ...skillRecs.recommendations
+        },
         lastFetched: new Date()
       };
 
@@ -127,16 +136,19 @@ const SkillDevelopmentPage = () => {
     
     if (analysis.next_role_details?.skill_gaps) {
       const skillGaps = analysis.next_role_details.skill_gaps;
-      gaps.push(...(skillGaps.technical || []));
-      gaps.push(...(skillGaps.soft || []));
-      gaps.push(...(skillGaps.domain || []));
+      const technicalGaps = (skillGaps.technical || []).map(g => typeof g === 'string' ? g : g.name || g);
+      const softGaps = (skillGaps.soft || []).map(g => typeof g === 'string' ? g : g.name || g);
+      const domainGaps = (skillGaps.domain || []).map(g => typeof g === 'string' ? g : g.name || g);
+      gaps.push(...technicalGaps, ...softGaps, ...domainGaps);
     } else if (analysis.skill_gaps) {
-      gaps.push(...(analysis.skill_gaps.technical || []));
-      gaps.push(...(analysis.skill_gaps.soft || []));
-      gaps.push(...(analysis.skill_gaps.domain || []));
+      const technicalGaps = (analysis.skill_gaps.technical || []).map(g => typeof g === 'string' ? g : g.name || g);
+      const softGaps = (analysis.skill_gaps.soft || []).map(g => typeof g === 'string' ? g : g.name || g);
+      const domainGaps = (analysis.skill_gaps.domain || []).map(g => typeof g === 'string' ? g : g.name || g);
+      gaps.push(...technicalGaps, ...softGaps, ...domainGaps);
     }
     
-    return gaps;
+    // Remove duplicates and filter out empty values
+    return [...new Set(gaps)].filter(gap => gap && gap.trim());
   };
 
   const handleRefreshData = async () => {
@@ -215,6 +227,25 @@ const SkillDevelopmentPage = () => {
   };
 
   const renderTabContent = () => {
+    if (!employeeId) {
+      return (
+        <Card>
+          <div className="py-12 text-center">
+            <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+            <p className="text-gray-500 mb-4">Please select an employee to view skill development options</p>
+            <Button
+              variant="primary"
+              onClick={() => navigate("/talent-pool")}
+            >
+              Browse Employees
+            </Button>
+          </div>
+        </Card>
+      );
+    }
+
     switch (activeTab) {
       case "analysis":
         return (
@@ -346,8 +377,8 @@ const SkillDevelopmentPage = () => {
     );
   };
 
-  // Show initialization loading screen
-  if (isInitializing) {
+  // Show initialization loading screen only when employeeId is present
+  if (isInitializing && employeeId) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
         <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
@@ -383,33 +414,35 @@ const SkillDevelopmentPage = () => {
               Skill Development
             </h1>
             <p className="text-gray-600">
-              Analyze skill gaps and create personalized development plans
+              {employeeId ? "Analyze skill gaps and create personalized development plans" : "Select an employee to begin"}
             </p>
           </div>
 
           <div className="flex mt-4 space-x-3 md:mt-0">
-            <Button
-              variant="outline"
-              onClick={handleRefreshData}
-              icon={
-                <svg
-                  className="w-4 h-4 mr-1"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-              }
-            >
-              Refresh Data
-            </Button>
+            {employeeId && (
+              <Button
+                variant="outline"
+                onClick={handleRefreshData}
+                icon={
+                  <svg
+                    className="w-4 h-4 mr-1"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                }
+              >
+                Refresh Data
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => navigate("/talent-pool")}
@@ -436,14 +469,14 @@ const SkillDevelopmentPage = () => {
         </div>
 
         {/* Last updated indicator */}
-        {dataCache.lastFetched && (
+        {dataCache.lastFetched && employeeId && (
           <p className="mt-2 text-xs text-gray-500">
             Last updated: {new Date(dataCache.lastFetched).toLocaleString()}
           </p>
         )}
       </div>
 
-      {error ? (
+      {error && employeeId ? (
         <div className="p-4 mb-6 text-red-700 rounded-md bg-red-50">
           <p>{error}</p>
           <Button
@@ -455,7 +488,7 @@ const SkillDevelopmentPage = () => {
             Retry
           </Button>
         </div>
-      ) : employee ? (
+      ) : employee && employeeId ? (
         <>
           {/* Employee Info */}
           <div className="p-6 mb-6 bg-white rounded-lg shadow">
@@ -611,18 +644,7 @@ const SkillDevelopmentPage = () => {
           {renderTabContent()}
         </>
       ) : (
-        <div className="p-6 text-center bg-white rounded-lg shadow">
-          <p className="text-gray-500">
-            No employee selected or employee not found.
-          </p>
-          <Button
-            variant="outline"
-            className="mt-4"
-            onClick={() => navigate("/talent-pool")}
-          >
-            Browse Talent Pool
-          </Button>
-        </div>
+        !employeeId && renderTabContent()
       )}
 
       {/* Create Development Plan Modal */}
