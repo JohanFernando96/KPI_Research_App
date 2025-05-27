@@ -138,6 +138,7 @@ def analyze_employee_skill_gap(employee_id):
 
 
 @recommendation_blueprint.route('/employees/<employee_id>/recommend-training', methods=['POST'])
+@recommendation_blueprint.route('/employees/<employee_id>/recommend-training', methods=['POST'])
 def recommend_employee_training(employee_id):
     """
     Endpoint for recommending training resources for an employee.
@@ -174,10 +175,14 @@ def recommend_employee_training(employee_id):
             skill_gaps = data.get('skill_gaps', [])
 
             if not skill_gaps:
+                # Return empty recommendations instead of error
                 return jsonify({
-                    'success': False,
-                    'message': "Skill gaps are required for skill-based recommendations"
-                }), 400
+                    'success': True,
+                    'employee_id': employee_id,
+                    'recommendation_type': recommendation_type,
+                    'recommendations': {},
+                    'message': 'No skill gaps identified'
+                })
 
             # Get recommendations for skill gaps
             recommendations = TrainingRecommender.recommend_for_skill_gaps(skill_gaps)
@@ -244,7 +249,6 @@ def recommend_employee_training(employee_id):
             'success': False,
             'message': f"Error recommending training: {str(e)}"
         }), 500
-
 
 @recommendation_blueprint.route('/employees/<employee_id>/development-plan', methods=['POST'])
 def create_development_plan(employee_id):

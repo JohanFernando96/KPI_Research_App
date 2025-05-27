@@ -27,26 +27,33 @@ export const EmployeeProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   // Fetch all employees
-  const fetchEmployees = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    const fetchEmployees = useCallback(async () => {
+      setLoading(true);
+      setError(null);
 
-    try {
-      const response = await employeeService.getAllEmployees();
+      try {
+        const response = await employeeService.getAllEmployees();
 
-      if (response.success) {
-        setEmployees(response.data || []);
-        setFilteredEmployees(response.data || []);
-      } else {
-        setError(response.message || "Failed to fetch employees");
+        if (response.success) {
+          // Ensure all employee IDs are strings
+          const employeesWithStringIds = (response.data || []).map(emp => ({
+            ...emp,
+            _id: String(emp._id || emp.id || ''),
+            id: String(emp._id || emp.id || '')
+          }));
+          
+          setEmployees(employeesWithStringIds);
+          setFilteredEmployees(employeesWithStringIds);
+        } else {
+          setError(response.message || "Failed to fetch employees");
+        }
+      } catch (error) {
+        console.error("Error fetching employees:", error);
+        setError("An error occurred while fetching employees");
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Error fetching employees:", error);
-      setError("An error occurred while fetching employees");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    }, []);
 
   // Load employees on initial mount
   useEffect(() => {
