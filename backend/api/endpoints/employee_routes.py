@@ -1,8 +1,7 @@
-from flask import Blueprint, request, jsonify
-from flask import Response
-from bson import json_util
+from flask import Blueprint, request, jsonify, current_app
 from bson.objectid import ObjectId
 import json
+from datetime import datetime
 
 from services.mongodb_service import mongodb_service
 from services.openai_service import openai_service
@@ -10,24 +9,38 @@ from modules.employee_matching.candidate_ranker import CandidateRanker
 from modules.employee_matching.skill_matcher import SkillMatcher
 from modules.employee_matching.experience_analyzer import ExperienceAnalyzer
 from utils.error_handlers import ValidationError, NotFoundError
+from utils.json_utils import serialize_mongo
 
 employee_blueprint = Blueprint('employees', __name__)
 
 
 @employee_blueprint.route('', methods=['GET'])
 def get_all_employees():
+    """
+    Endpoint for retrieving all employees.
+    """
     try:
-        employees = mongodb_service.find_many('Resumes') or []
-        payload = {
+        # Get all employees from MongoDB
+        employees = mongodb_service.find_many('Resumes', serialize=True) or []
+
+        # Ensure each employee has a proper string ID
+        for employee in employees:
+            if '_id' in employee and not isinstance(employee['_id'], str):
+                employee['_id'] = str(employee['_id'])
+
+        return jsonify({
             'success': True,
             'total': len(employees),
             'data': employees
-        }
-        # json_util.dumps will convert ObjectId, dates, etc.
-        return Response(json_util.dumps(payload), mimetype='application/json')
+        })
+
     except Exception as e:
         current_app.logger.error(f"Error retrieving employees: {e}")
-        return jsonify({'success': False, 'message': 'Error retrieving employees'}), 500
+        return jsonify({
+            'success': False,
+            'message': f'Error retrieving employees: {str(e)}',
+            'data': []
+        }), 500
 
 
 @employee_blueprint.route('/<employee_id>', methods=['GET'])
@@ -36,24 +49,43 @@ def get_employee(employee_id):
     Endpoint for retrieving an employee by ID.
     """
     try:
-        # Convert string ID to ObjectId
-        object_id = ObjectId(employee_id)
+        # Validate the employee_id format
+        if not employee_id or employee_id == '[object Object]':
+            raise ValidationError(f"Invalid employee ID format: {employee_id}")
 
-        # Retrieve the employee from MongoDB
-        employee = mongodb_service.find_one('Resumes', {'_id': object_id})
+        # Convert string ID to ObjectId
+        try:
+            object_id = ObjectId(employee_id)
+        except Exception as e:
+            raise ValidationError(f"Invalid employee ID: {employee_id}")
+
+        # Retrieve the employee from MongoDB with serialization
+        employee = mongodb_service.find_one('Resumes', {'_id': object_id}, serialize=True)
 
         if not employee:
             raise NotFoundError(f"Employee with ID {employee_id} not found")
 
-        # Convert ObjectId to string for JSON serialization
-        employee['_id'] = str(employee['_id'])
+        # Ensure ID is string
+        if '_id' in employee and not isinstance(employee['_id'], str):
+            employee['_id'] = str(employee['_id'])
 
         return jsonify({
             'success': True,
             'data': employee
         })
 
+    except ValidationError as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 400
+    except NotFoundError as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 404
     except Exception as e:
+        current_app.logger.error(f"Error retrieving employee {employee_id}: {e}")
         return jsonify({
             'success': False,
             'message': f"Error retrieving employee: {str(e)}"

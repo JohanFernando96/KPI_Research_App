@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { employeeService } from "../../services/employeeService";
+import { extractId } from "../../utils/dataHelpers";
 
 const EmployeeAssignmentCard = ({
   employeeId,
@@ -12,11 +13,17 @@ const EmployeeAssignmentCard = ({
 
   useEffect(() => {
     const fetchEmployee = async () => {
-      if (!employeeId) return;
+      const id = extractId(employeeId);
+      
+      if (!id) {
+        console.error('Invalid employee ID in EmployeeAssignmentCard:', employeeId);
+        setLoading(false);
+        return;
+      }
 
       setLoading(true);
       try {
-        const response = await employeeService.getEmployee(employeeId);
+        const response = await employeeService.getEmployee(id);
         if (response.success) {
           setEmployee(response.data);
         }
@@ -29,7 +36,7 @@ const EmployeeAssignmentCard = ({
 
     fetchEmployee();
   }, [employeeId]);
-
+  
   if (loading) {
     return (
       <div className="text-sm text-gray-500">Loading employee details...</div>

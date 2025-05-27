@@ -1,4 +1,5 @@
 import { api } from './api';
+import { extractId } from '../utils/dataHelpers';
 
 // Employee service for handling employee-related API calls
 export const employeeService = {
@@ -22,12 +23,23 @@ export const employeeService = {
 
     /**
      * Get a specific employee by ID
-     * @param {string} employeeId - The ID of the employee
+     * @param {string|Object} employeeId - The ID of the employee (or employee object)
      * @returns {Promise<Object>} - The API response
      */
     getEmployee: async (employeeId) => {
         try {
-            const response = await api.get(`/employees/${employeeId}`);
+            // Ensure we have a valid string ID
+            const id = extractId(employeeId);
+            
+            if (!id) {
+                console.error('Invalid employee ID provided:', employeeId);
+                return {
+                    success: false,
+                    message: 'Invalid employee ID'
+                };
+            }
+            
+            const response = await api.get(`/employees/${id}`);
             return response.data;
         } catch (error) {
             console.error('Error getting employee:', error);
@@ -38,15 +50,25 @@ export const employeeService = {
         }
     },
 
-    /**
+   /**
      * Update an employee's information
-     * @param {string} employeeId - The ID of the employee
+     * @param {string|Object} employeeId - The ID of the employee (or employee object)
      * @param {Object} employeeData - The updated employee data
      * @returns {Promise<Object>} - The API response
      */
     updateEmployee: async (employeeId, employeeData) => {
         try {
-            const response = await api.put(`/employees/${employeeId}`, employeeData);
+            const id = extractId(employeeId);
+            
+            if (!id) {
+                console.error('Invalid employee ID provided:', employeeId);
+                return {
+                    success: false,
+                    message: 'Invalid employee ID'
+                };
+            }
+            
+            const response = await api.put(`/employees/${id}`, employeeData);
             return response.data;
         } catch (error) {
             console.error('Error updating employee:', error);
@@ -59,12 +81,22 @@ export const employeeService = {
 
     /**
      * Delete an employee
-     * @param {string} employeeId - The ID of the employee
+     * @param {string|Object} employeeId - The ID of the employee (or employee object)
      * @returns {Promise<Object>} - The API response
      */
     deleteEmployee: async (employeeId) => {
         try {
-            const response = await api.delete(`/employees/${employeeId}`);
+            const id = extractId(employeeId);
+            
+            if (!id) {
+                console.error('Invalid employee ID provided:', employeeId);
+                return {
+                    success: false,
+                    message: 'Invalid employee ID'
+                };
+            }
+            
+            const response = await api.delete(`/employees/${id}`);
             return response.data;
         } catch (error) {
             console.error('Error deleting employee:', error);
@@ -77,12 +109,22 @@ export const employeeService = {
 
     /**
      * Get an employee's skills
-     * @param {string} employeeId - The ID of the employee
+     * @param {string|Object} employeeId - The ID of the employee (or employee object)
      * @returns {Promise<Object>} - The API response
      */
     getEmployeeSkills: async (employeeId) => {
         try {
-            const response = await api.get(`/employees/${employeeId}/skills`);
+            const id = extractId(employeeId);
+            
+            if (!id) {
+                console.error('Invalid employee ID provided:', employeeId);
+                return {
+                    success: false,
+                    message: 'Invalid employee ID'
+                };
+            }
+            
+            const response = await api.get(`/employees/${id}/skills`);
             return response.data;
         } catch (error) {
             console.error('Error getting employee skills:', error);
@@ -95,12 +137,22 @@ export const employeeService = {
 
     /**
      * Get an employee's career path information
-     * @param {string} employeeId - The ID of the employee
+     * @param {string|Object} employeeId - The ID of the employee (or employee object)
      * @returns {Promise<Object>} - The API response
      */
     getCareerPath: async (employeeId) => {
         try {
-            const response = await api.get(`/employees/${employeeId}/career-path`);
+            const id = extractId(employeeId);
+            
+            if (!id) {
+                console.error('Invalid employee ID provided:', employeeId);
+                return {
+                    success: false,
+                    message: 'Invalid employee ID'
+                };
+            }
+            
+            const response = await api.get(`/employees/${id}/career-path`);
             return response.data;
         } catch (error) {
             console.error('Error getting career path:', error);
@@ -110,7 +162,7 @@ export const employeeService = {
             };
         }
     },
-
+    
     /**
      * Match employees to specific project criteria
      * @param {Object} matchData - The matching criteria
