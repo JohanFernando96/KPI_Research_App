@@ -48,6 +48,60 @@ const SkillDevelopmentPage = () => {
     }
   }, [employeeId]);
 
+  // Updated extractAllSkillGaps function with better error handling
+  const extractAllSkillGaps = (analysis) => {
+    if (!analysis) return null;
+    
+    const gaps = [];
+    
+    // Handle new API format with next_role_details
+    if (analysis.next_role_details?.skill_gaps) {
+      const skillGaps = analysis.next_role_details.skill_gaps;
+      const technicalGaps = (skillGaps.technical || []).map(g => {
+        if (typeof g === 'string') return g;
+        if (typeof g === 'object' && g.name) return g.name;
+        return g?.toString() || '';
+      });
+      const softGaps = (skillGaps.soft || []).map(g => {
+        if (typeof g === 'string') return g;
+        if (typeof g === 'object' && g.name) return g.name;
+        return g?.toString() || '';
+      });
+      const domainGaps = (skillGaps.domain || []).map(g => {
+        if (typeof g === 'string') return g;
+        if (typeof g === 'object' && g.name) return g.name;
+        return g?.toString() || '';
+      });
+      gaps.push(...technicalGaps, ...softGaps, ...domainGaps);
+    } 
+    // Handle old API format
+    else if (analysis.skill_gaps) {
+      const technicalGaps = (analysis.skill_gaps.technical || []).map(g => {
+        if (typeof g === 'string') return g;
+        if (typeof g === 'object' && g.name) return g.name;
+        return g?.toString() || '';
+      });
+      const softGaps = (analysis.skill_gaps.soft || []).map(g => {
+        if (typeof g === 'string') return g;
+        if (typeof g === 'object' && g.name) return g.name;
+        return g?.toString() || '';
+      });
+      const domainGaps = (analysis.skill_gaps.domain || []).map(g => {
+        if (typeof g === 'string') return g;
+        if (typeof g === 'object' && g.name) return g.name;
+        return g?.toString() || '';
+      });
+      gaps.push(...technicalGaps, ...softGaps, ...domainGaps);
+    }
+    
+    // Remove duplicates and filter out empty values
+    const uniqueGaps = [...new Set(gaps)].filter(gap => gap && gap.trim());
+    
+    // If no gaps found, return null to indicate we should skip skill gap recommendations
+    return uniqueGaps.length > 0 ? uniqueGaps : null;
+  };
+
+  // Updated initializeAllData function with better error handling
   const initializeAllData = async () => {
     setIsInitializing(true);
     setError("");
@@ -80,17 +134,30 @@ const SkillDevelopmentPage = () => {
       // Extract skill gaps from career analysis
       const allSkillGaps = extractAllSkillGaps(careerAnalysis.analysis);
       
-      const [careerRecs, skillRecs] = await Promise.all([
+      // Prepare promises for recommendations
+      const recommendationPromises = [
         recommendationService.getRecommendations(employeeId, "career", { 
           current_role: currentRole,
           target_role: careerAnalysis.analysis?.next_role_details?.role_title || careerAnalysis.analysis?.next_role,
-          skill_gaps: allSkillGaps
-        }),
-        recommendationService.getRecommendations(employeeId, "skill_gaps", {
-          skill_gaps: allSkillGaps.length > 0 ? allSkillGaps : ["General Skills"], // Provide default if no gaps
-          current_role: currentRole
+          skill_gaps: allSkillGaps || []
         })
-      ]);
+      ];
+
+      // Only fetch skill gap recommendations if we have actual skill gaps
+      let skillRecs = { success: true, recommendations: {} };
+      if (allSkillGaps && allSkillGaps.length > 0) {
+        try {
+          skillRecs = await recommendationService.getRecommendations(employeeId, "skill_gaps", {
+            skill_gaps: allSkillGaps,
+            current_role: currentRole
+          });
+        } catch (error) {
+          console.warn("Failed to fetch skill gap recommendations:", error);
+          // Continue without skill gap recommendations
+        }
+      }
+
+      const [careerRecs] = await Promise.all(recommendationPromises);
 
       // Step 4: Load development plans
       setInitializationMessage("Loading development plans...");
@@ -127,28 +194,6 @@ const SkillDevelopmentPage = () => {
     } finally {
       setIsInitializing(false);
     }
-  };
-
-  const extractAllSkillGaps = (analysis) => {
-    if (!analysis) return [];
-    
-    const gaps = [];
-    
-    if (analysis.next_role_details?.skill_gaps) {
-      const skillGaps = analysis.next_role_details.skill_gaps;
-      const technicalGaps = (skillGaps.technical || []).map(g => typeof g === 'string' ? g : g.name || g);
-      const softGaps = (skillGaps.soft || []).map(g => typeof g === 'string' ? g : g.name || g);
-      const domainGaps = (skillGaps.domain || []).map(g => typeof g === 'string' ? g : g.name || g);
-      gaps.push(...technicalGaps, ...softGaps, ...domainGaps);
-    } else if (analysis.skill_gaps) {
-      const technicalGaps = (analysis.skill_gaps.technical || []).map(g => typeof g === 'string' ? g : g.name || g);
-      const softGaps = (analysis.skill_gaps.soft || []).map(g => typeof g === 'string' ? g : g.name || g);
-      const domainGaps = (analysis.skill_gaps.domain || []).map(g => typeof g === 'string' ? g : g.name || g);
-      gaps.push(...technicalGaps, ...softGaps, ...domainGaps);
-    }
-    
-    // Remove duplicates and filter out empty values
-    return [...new Set(gaps)].filter(gap => gap && gap.trim());
   };
 
   const handleRefreshData = async () => {
